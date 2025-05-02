@@ -59,3 +59,16 @@ RUN_INTEGRATION_TESTS=1 go test -tags integration ./...
 ### Note on TTY Functionality
 
 Raw mode must be enabled for proper keystroke forwarding to connections. The tests verify that keystrokes are properly passed from the TTY to the connection.
+
+
+notes:
+
+
+first
+ socat -d -d TCP-LISTEN:8443,fork,reuseaddr unix-listen:me.sock                                                                                               1m28s
+second
+❯❯ ncat -v -e /bin/bash localhost 8443
+third
+
+❯❯ socat stdio unix-connect:me.sock                                                                                                                               16s
+2025/05/02 16:50:15 socat[35783] E connect(, LEN=9 AF=1 "me.sock", 9): No such file or directory
