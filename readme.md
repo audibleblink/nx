@@ -1,6 +1,6 @@
 # nx
 
-netcat + tmux - listen on a port and forward the stream to a tmux session
+[n]etcat + tmu[x] - listen on a port and forward the stream to a tmux session
 
 ## Prerequisites
 
@@ -9,66 +9,18 @@ netcat + tmux - listen on a port and forward the stream to a tmux session
 
 ## Usage
 
-```
-Flags:
--v - verbose
--l - listen
--p - port #
--t - target tmux session in which to create the windows. default: nx
-
---auto - autoupgrades the tty default: false
-
-```
-
-## Breakdown
-
-1. start a listen, just like you would netcat
+1. start a listener
 ```sh
-nx -vlp 9090 --auto -t myshells
+nx -vp 9090
 ```
 
-2. from a different machine, initiate the connection
-3. nx catches the connection, 
-    - check for the existence of `myshells` or `nx` tmux session. creates if not exists
-    - starts a tmux window in the session, and send the stream there
-4. optionally, using tmux send-keys, upgrade the shell using `script` or python's `pty.spawn` functionality
+2. from a different machine, initiate the reverse shell
+3. nx catches the connection then starts a tmux window in the `nx` session, and starts the shell there
 
-## Testing
+## How?
 
-nx includes a test suite to ensure functionality works as expected:
+unix domain sockets mannn
 
-### Running Tests
-
-```sh
-# Run all unit tests
-go test ./...
-
-# Run tests with verbose output
-go test -v ./...
-
-# Run integration tests (requires tmux)
-RUN_INTEGRATION_TESTS=1 go test -tags integration ./...
-```
-
-### Test Structure
-
-- **Unit Tests:** These test individual functions like file generation and socket handling
-- **TTY Tests:** Tests for TTY functionality and keystroke handling
-- **Integration Tests:** Tests full program flow with tmux
-
-### Note on TTY Functionality
-
-Raw mode must be enabled for proper keystroke forwarding to connections. The tests verify that keystrokes are properly passed from the TTY to the connection.
-
-
-notes:
-
-
-first
- socat -d -d TCP-LISTEN:8443,fork,reuseaddr unix-listen:me.sock                                                                                               1m28s
-second
-❯❯ ncat -v -e /bin/bash localhost 8443
-third
-
-❯❯ socat stdio unix-connect:me.sock                                                                                                                               16s
-2025/05/02 16:50:15 socat[35783] E connect(, LEN=9 AF=1 "me.sock", 9): No such file or directory
+## ToDo
+- [ ] recover ctrl-c whoopsies since the reverse shell is tied to a unix domain socket and not a terminal
+- [ ] some mechanism to auto-upgrade the shell to a TTY via tmux-send-keys or sourcing a script that just adds the keybinds, so that it's up to the user to fire off the upgrade
