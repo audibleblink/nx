@@ -5,238 +5,188 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
-	"sync"
-	"time"
+	"path"
 
 	"github.com/disneystreaming/gomux"
 	"github.com/jessevdk/go-flags"
-	"github.com/mattn/go-tty"
-	log "github.com/sirupsen/logrus"
+	"github.com/sumup-oss/go-pkgs/logger"
 )
 
 var opts struct {
 	Iface   string `short:"i" long:"host" description:"Interface address on which to bind" default:"127.0.0.1" required:"true"`
 	Port    string `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
-	Socket  string `short:"s" long:"socket" description:"Domain socket from which the program reads"`
 	Target  string `short:"t" long:"target" description:"Tmux session name" default:"nx"`
-	Verbose bool   `short:"v" long:"verbose" description:"Verbose"`
+	Verbose bool   `short:"v" long:"verbose" description:"Debug logging"`
 }
 
-var sessions = make(map[string]*gomux.Session)
+var session *gomux.Session
 
 func init() {
 	_, err := flags.Parse(&opts)
-	// the flags package returns an error when calling --help for
-	// some reason so we look for that and exit gracefully
-	if err != nil {
-		if err.(*flags.Error).Type == flags.ErrHelp {
-			os.Exit(0)
-		}
-		log.Fatal(err)
+	switch err {
+	case flags.ErrHelp:
+		os.Exit(0)
+	case nil:
+	default:
+		logger.Fatal("opts: ", err)
 	}
 
-	// Since this binary only builds tmux commands and echoes them,
-	// it needs to be piped to bash in order to work.
-	// Because of this, all logging is sent to stderr
-	log.SetOutput(os.Stderr)
-	log.SetLevel(log.DebugLevel)
+	if opts.Verbose {
+		logger.SetLevel(logger.DebugLevel)
+	}
 
 	// Ensure socket folder exists
 	if _, err := os.Stat(".state"); os.IsNotExist(err) {
 		os.Mkdir(".state", 0700)
 	}
 
-	// account for existing session to avoid 'duplicate session' error
-	// initSessions()
+	session, err = prepareTmux(opts.Target)
+	if err != nil {
+		logger.Fatal("tmux: ", err)
+	}
 }
+
 
 func main() {
-	var listener net.Listener
-	var err error
-	var sockF string
 
-	if opts.Socket == "" {
-		// Shell-catching mode. TCP -> TMUX -> Shell
-		// Once the shell is caught over TLS, it's unwrapped and sent
-		// to a local socket, where it will later be read by a new instance
-		// of the server configured to read that socket from within a tmux pane
-		listener, err = newListener()
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.WithFields(log.Fields{"port": opts.Port, "host": opts.Iface}).Info("Listener started")
-
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				log.Error(err)
-				continue
-			}
-
-			sockF, err = prepareTmux(conn)
-			if err != nil {
-				log.Error(err)
-				continue
-			}
-			time.Sleep(1 * time.Second) // Give socket time to establish
-			go proxyConnToSocket(conn, sockF)
-		}
-
-	} else {
-
-		// Post-tmux routing.
-		// Creates a socket file and listens for input.
-		// If in this branch, binary was started from within tmux.
-		// Once the tcp and sockets are mutually proxied with
-		// `proxyConnToSocket`, the shell will start
-		listener, err = net.Listen("unix", opts.Socket)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer listener.Close()
-		log.WithField("socket", opts.Socket).Info("Listener started")
-
-		conn, err := listener.Accept()
-		if err != nil {
-			log.Error(err)
-		}
-		startShell(conn)
-	}
-
-}
-
-func newListener() (net.Listener, error) {
+	// create revshell listener
 	connStr := fmt.Sprintf("%s:%s", opts.Iface, opts.Port)
-	return net.Listen("tcp", connStr)
-}
-
-func startShell(conn net.Conn) {
-	log.WithFields(log.Fields{"port": opts.Port, "host": opts.Iface}).Info("Incoming")
-	defer conn.Close()
-
-	ttwhy, err := tty.Open()
+	listener, err := net.Listen("tcp", connStr)
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal("listener: ", err)
 	}
-	defer ttwhy.Close()
-
-	// unraw, err := ttwhy.Raw()
-	// if err != nil {
-	// 	log.Error(err)
-	// }
-	// defer unraw()
-
-	// continuously print shell stdout coming from the implant
-	go func() { io.Copy(ttwhy.Output(), conn) }()
-
+	logger.Debug("listening on: ", connStr)
 
 	for {
-		r, err := ttwhy.ReadRune()
+		logger.Debug("waiting on new connection")
+		conn, err := listener.Accept()
 		if err != nil {
-			log.Fatal(err)
+			logger.Fatal("conn: ", err)
 		}
-		// io.Copy(conn, r)
-		_, err = fmt.Fprint(conn, string(r))
+		logger.Info(fmt.Sprintf("new connection: %s", conn.RemoteAddr().String()))
+		defer conn.Close()
+
+		// create the unix domain socket filename
+		sockF, err := genTempFilename("nx")
 		if err != nil {
-			fmt.Println("Error sending rune:", err)
-			return
+			logger.Error("gen filename: ", err)
+			continue
 		}
-		fmt.Print( r)
+
+		// create the unix domain socket
+		sockH, err := net.Listen("unix", sockF)
+		if err != nil {
+			logger.Error("socket create: ", err)
+			continue
+		}
+		logger.Debug(fmt.Sprintf("socket file created: %s", sockF))
+
+		// background: wait and listen for a connection to the domain socket
+		go handleTCPUnix(conn, sockH)
+
+		// create a tmux window for the reverse shell to run in
+		window, err := newTmuxWindow(session, sockF)
+		if err != nil {
+			os.Remove(sockF)
+			logger.Error("tmux window create: ", err)
+			continue
+		}
+
+		// create the tmux command to run in the new window
+		cmd := fmt.Sprintf("socat -d -d stdio unix-connect:'%s'", sockF)
+		err = execInWindow(window, cmd)
+		if err != nil {
+			os.Remove(sockF)
+			logger.Error("tmux exec: ", err)
+			continue
+		}
+
+		logger.Info("new shell: ", conn.RemoteAddr().String())
 	}
 }
 
-func genTempFilename(username string) (string, error) {
-	file, err := os.CreateTemp(".state", fmt.Sprintf("%s.*.sock", username))
+
+// handleTCPUnix handles the connection between the network and the unix domain socket
+func handleTCPUnix(httpConn net.Conn, domainSocket net.Listener) error {
+
+	defer domainSocket.Close()
+	netC, sockC := make(chan string), make(chan string)
+
+	socketConn, err := domainSocket.Accept()
+	if err != nil {
+		logger.Warn("socket connection: ", err)
+		return err
+	}
+
+	//stdio from network
+	go func() {
+		io.Copy(socketConn, httpConn)
+		netC <- "shell died"
+	}()
+
+	// stdio from us/socat
+	go func() {
+		io.Copy(httpConn, socketConn)
+		sockC <- domainSocket.Addr().String()
+	}()
+
+	for {
+		select {
+		case file := <-sockC:
+			logger.Warn("receiver quit: ", file)
+			// maybe this is recoverable if we don't allow sockF cleanup?
+			break
+		case msg := <-netC:
+			logger.Warn(msg)
+			break
+		}
+		break
+	}
+	return nil
+}
+
+// create tempfile name. socket file can't exists when we start
+// the listener, so we delete it immediately
+// i'm using it for the convenience of getting abs paths
+func genTempFilename(stub string) (string, error) {
+	// TODO: configurable state path or XDG
+	file, err := os.CreateTemp(".state", fmt.Sprintf("%s.*.sock", stub))
 	if err != nil {
 		err = fmt.Errorf("temp file failed: %w", err)
 		return "", err
 	}
+	file.Close()
 	os.Remove(file.Name())
-
-	path, err := filepath.Abs(file.Name())
-	if err != nil {
-		err = fmt.Errorf("temp path read failed: %w", err)
-		return "", err
-	}
-	return path, nil
+	return file.Name(), err
 }
 
-func prepareTmux(conn net.Conn) (string, error) {
-
-	hostname := opts.Target
-	username := conn.RemoteAddr().String()
-
-	exists, err := gomux.CheckSessionExists(hostname)
+// Handles tmux session existance
+func prepareTmux(tmSessName string) (tmux *gomux.Session, err error) {
+	exists, err := gomux.CheckSessionExists(tmSessName)
 	if err != nil {
-		return "", err
-	}
-
-	// not yet seen host
-	if !exists {
-		log.WithField("host", hostname).Info("new host connected, creating session")
-		sessions[hostname], err = gomux.NewSession(hostname)
-		if err != nil {
-			log.Warn(err)
-		}
-	}
-
-	// session in tmux, but not tracked with server yet
-	if exists && sessions[hostname] == nil {
-		log.WithField("host", hostname).Debug("creating new cached session")
-		sessions[hostname] = &gomux.Session{Name: hostname}
-	}
-
-	session := sessions[hostname]
-	id := fmt.Sprintf("%s.%d", username, session.NextWindowNumber)
-	window, err := session.AddWindow(id)
-	if err != nil {
-		log.Warn(err)
-	}
-
-	path, err := genTempFilename(username)
-	if err != nil {
-		return "", err
-	}
-
-	// window.Panes[0].Exec(`echo -e '\a'`) // ring a bell
-	// self := os.Args[0]
-	// cmd := fmt.Sprintf("%s -s %s", self, path)
-	self := "socat"
-	cmd := fmt.Sprintf("%s -d -d - unix-listen:'%s'", self, path)
-	window.Panes[0].Exec(cmd)
-	log.WithFields(log.Fields{"session": session.Name, "window": username}).Info("new shell in tmux")
-	return path, nil
-}
-
-func proxyConnToSocket(conn net.Conn, sockF string) {
-	socket, err := net.Dial("unix", sockF)
-	if err != nil {
-		log.WithField("err", err).Error("failed to dial sockF")
 		return
 	}
-	defer socket.Close()
-	defer os.Remove(sockF)
 
-	wg := sync.WaitGroup{}
+	if !exists {
+		logger.Debug("creating new tmux session")
+		return gomux.NewSession(tmSessName)
+	}
 
-	// forward socket to tcp
-	wg.Add(1)
-	go (func(socket net.Conn, conn net.Conn) {
-		defer conn.Close()
-		defer wg.Done()
-		io.Copy(conn, socket)
-	})(socket, conn)
+	// session is in tmux, but not tracked with server yet
+	logger.Debug("tracking existing tmux sessions: ", opts.Target)
+	tmux = &gomux.Session{Name: tmSessName}
+	return
+}
 
-	// forward tcp to socket
-	wg.Add(1)
-	go (func(socket net.Conn, conn net.Conn) {
-		defer socket.Close()
-		defer wg.Done()
-		io.Copy(socket, conn)
-	})(socket, conn)
+// newTmuxWindow creates a new tmux window based on the socket file
+func newTmuxWindow(session *gomux.Session, socketFile string) (window *gomux.Window, err error) {
+	tmWindowName := path.Base(socketFile)
+	id := fmt.Sprintf("%s.%d", tmWindowName, session.NextWindowNumber)
+	return session.AddWindow(id)
+}
 
-	// keep from returning until sockets close so we
-	// can cleanup the socket file using `defer`
-	wg.Wait()
+// execInWindow executes a command in the tmux window
+func execInWindow(window *gomux.Window, cmd string) error {
+	logger.Debug("sent to tmux: ", cmd)
+	return window.Panes[0].Exec(cmd) // new windows always have a 0-index pane
 }
