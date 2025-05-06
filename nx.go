@@ -5,59 +5,20 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/signal"
 	"path"
+	"os/signal"
 
-	"github.com/disneystreaming/gomux"
 	"github.com/jessevdk/go-flags"
+	"github.com/disneystreaming/gomux"
 	"github.com/sumup-oss/go-pkgs/logger"
 )
 
+var session *gomux.Session
 var opts struct {
 	Iface   string `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
 	Port    string `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
 	Target  string `short:"t" long:"target" description:"Tmux session name" default:"nx"`
 	Verbose bool   `short:"v" long:"verbose" description:"Debug logging"`
-}
-
-var session *gomux.Session
-
-func init() {
-	_, err := flags.Parse(&opts)
-	switch err {
-	case flags.ErrHelp:
-		os.Exit(0)
-	case nil:
-	default:
-		logger.Fatal("opts: ", err)
-	}
-
-	if opts.Verbose {
-		logger.SetLevel(logger.DebugLevel)
-	}
-
-	// Ensure socket folder exists
-	if _, err := os.Stat(".state"); os.IsNotExist(err) {
-		os.Mkdir(".state", 0700)
-	}
-
-	session, err = prepareTmux(opts.Target)
-	if err != nil {
-		logger.Fatal("tmux: ", err)
-	}
-
-	// Set up signal handling for graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
-	
-	// Start cleanup goroutine
-	go func() {
-		sig := <-sigChan
-		logger.Info("Received interrupt signal, ", sig)
-		cleanup()
-		os.Exit(0)
-	}()
-
 }
 
 
@@ -196,10 +157,46 @@ func execInWindow(window *gomux.Window, cmd string) error {
 	return window.Panes[0].Exec(cmd) // new windows always have a 0-index pane
 }
 
+func init() {
+	_, err := flags.Parse(&opts)
+	switch err {
+	case flags.ErrHelp:
+		os.Exit(0)
+	case nil:
+	default:
+		logger.Fatal("opts: ", err)
+	}
+
+	if opts.Verbose {
+		logger.SetLevel(logger.DebugLevel)
+	}
+
+	// Ensure socket folder exists
+	if _, err := os.Stat(".state"); os.IsNotExist(err) {
+		os.Mkdir(".state", 0700)
+	}
+
+	session, err = prepareTmux(opts.Target)
+	if err != nil {
+		logger.Fatal("tmux: ", err)
+	}
+
+	// Set up signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+
+	// Start cleanup goroutine
+	go func() {
+		sig := <-sigChan
+		logger.Info("Received interrupt signal, ", sig)
+		cleanup()
+		os.Exit(0)
+	}()
+}
+
 // cleanup removes any socket files and performs other cleanup tasks
 func cleanup() {
-	// Empty function to be filled in later
-	logger.Info("Cleaning up resources...")
 	os.RemoveAll(".state")
+	// gomux.KillSession(opts.Target)
 }
 
