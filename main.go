@@ -107,36 +107,36 @@ func main() {
 
 // handleTCPUnix handles the connection between the network and the unix domain socket
 func handleTCPUnix(httpConn net.Conn, domainSocket net.Listener) error {
-
 	defer domainSocket.Close()
-	netC, sockC := make(chan string), make(chan string)
+	netC, sockC := make(chan error), make(chan error)
 
 	socketConn, err := domainSocket.Accept()
 	if err != nil {
 		logger.Warn("socket connection: ", err)
 		return err
 	}
+	defer socketConn.Close()
 
 	//stdio from network
 	go func() {
-		io.Copy(socketConn, httpConn)
-		netC <- "shell died"
+		_, err := io.Copy(socketConn, httpConn)
+		netC <- err
 	}()
 
 	// stdio from us/socat
 	go func() {
-		io.Copy(httpConn, socketConn)
-		sockC <- domainSocket.Addr().String()
+		_, err := io.Copy(httpConn, socketConn)
+		sockC <- err
 	}()
 
+	// Wait for either goroutine to finish and return any error
 	select {
-	case file := <-sockC:
-		logger.Warn("receiver quit: ", file)
-		// maybe this is recoverable if we don't allow sockF cleanup?
-	case msg := <-netC:
-		logger.Warn(msg)
+	case err = <-netC:
+		logger.Warn("shell died: ", err)
+	case err = <-sockC:
+		logger.Warn("tmux died: ", err)
 	}
-	return nil
+	return err
 }
 
 // create tempfile name. socket file can't exists when we start
