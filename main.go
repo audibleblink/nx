@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"path"
 
 	"github.com/disneystreaming/gomux"
@@ -44,11 +45,23 @@ func init() {
 	if err != nil {
 		logger.Fatal("tmux: ", err)
 	}
+
+	// Set up signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	
+	// Start cleanup goroutine
+	go func() {
+		sig := <-sigChan
+		logger.Info("Received interrupt signal, ", sig)
+		cleanup()
+		os.Exit(0)
+	}()
+
 }
 
 
 func main() {
-
 	// create revshell listener
 	connStr := fmt.Sprintf("%s:%s", opts.Iface, opts.Port)
 	listener, err := net.Listen("tcp", connStr)
@@ -86,7 +99,6 @@ func main() {
 		// create a tmux window for the reverse shell to run in
 		window, err := newTmuxWindow(session, sockF)
 		if err != nil {
-			os.Remove(sockF)
 			logger.Error("tmux window create: ", err)
 			continue
 		}
@@ -95,7 +107,6 @@ func main() {
 		cmd := fmt.Sprintf("socat -d -d stdio unix-connect:'%s'", sockF)
 		err = execInWindow(window, cmd)
 		if err != nil {
-			os.Remove(sockF)
 			logger.Error("tmux exec: ", err)
 			continue
 		}
@@ -184,3 +195,11 @@ func execInWindow(window *gomux.Window, cmd string) error {
 	logger.Debug("sent to tmux: ", cmd)
 	return window.Panes[0].Exec(cmd) // new windows always have a 0-index pane
 }
+
+// cleanup removes any socket files and performs other cleanup tasks
+func cleanup() {
+	// Empty function to be filled in later
+	logger.Info("Cleaning up resources...")
+	os.RemoveAll(".state")
+}
+
