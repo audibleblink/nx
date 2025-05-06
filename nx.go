@@ -5,22 +5,23 @@ import (
 	"io"
 	"net"
 	"os"
-	"path"
 	"os/signal"
+	"path"
 
-	"github.com/jessevdk/go-flags"
 	"github.com/disneystreaming/gomux"
+	"github.com/jessevdk/go-flags"
 	"github.com/sumup-oss/go-pkgs/logger"
 )
 
-var session *gomux.Session
-var opts struct {
-	Iface   string `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
-	Port    string `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
-	Target  string `short:"t" long:"target" description:"Tmux session name" default:"nx"`
-	Verbose bool   `short:"v" long:"verbose" description:"Debug logging"`
-}
-
+var (
+	session *gomux.Session
+	opts    struct {
+		Iface   string `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
+		Port    string `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
+		Target  string `short:"t" long:"target" description:"Tmux session name" default:"nx"`
+		Verbose bool   `short:"v" long:"verbose" description:"Debug logging"`
+	}
+)
 
 func main() {
 	// create revshell listener
@@ -76,7 +77,6 @@ func main() {
 	}
 }
 
-
 // handleTCPUnix handles the connection between the network and the unix domain socket
 func handleTCPUnix(httpConn net.Conn, domainSocket net.Listener) error {
 	defer domainSocket.Close()
@@ -89,7 +89,7 @@ func handleTCPUnix(httpConn net.Conn, domainSocket net.Listener) error {
 	}
 	defer socketConn.Close()
 
-	//stdio from network
+	// stdio from network
 	go func() {
 		_, err := io.Copy(socketConn, httpConn)
 		netC <- err
@@ -173,7 +173,7 @@ func init() {
 
 	// Ensure socket folder exists
 	if _, err := os.Stat(".state"); os.IsNotExist(err) {
-		os.Mkdir(".state", 0700)
+		os.Mkdir(".state", 0o700)
 	}
 
 	session, err = prepareTmux(opts.Target)
@@ -199,4 +199,3 @@ func cleanup() {
 	os.RemoveAll(".state")
 	// gomux.KillSession(opts.Target)
 }
-
