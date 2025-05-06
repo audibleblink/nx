@@ -17,6 +17,19 @@ nx -vp 9090
 2. from a different machine, initiate the reverse shell
 3. nx catches the connection then starts a tmux window in the `nx` session, and starts the shell there
 
+```
+Usage:
+  nx [OPTIONS]
+
+Application Options:
+      --auto     Attempt to auto-upgrade to a tty
+  -i, --host=    Interface address on which to bind (default: 0.0.0.0)
+  -p, --port=    Port on which to bind (default: 8443)
+  -t, --target=  Tmux session name (default: nx)
+  -v, --verbose  Debug logging
+
+```
+
 ## How?
 
 unix domain sockets mannn

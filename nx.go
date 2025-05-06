@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"time"
 
 	"github.com/disneystreaming/gomux"
 	"github.com/jessevdk/go-flags"
@@ -16,6 +17,7 @@ import (
 var (
 	session *gomux.Session
 	opts    struct {
+		Auto    bool   `long:"auto" description:"Attempt to auto-upgrade to a tty"`
 		Iface   string `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
 		Port    string `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
 		Target  string `short:"t" long:"target" description:"Tmux session name" default:"nx"`
@@ -74,6 +76,19 @@ func main() {
 		}
 
 		logger.Info("new shell: ", conn.RemoteAddr().String())
+
+		if opts.Auto {
+			// _ = execInWindow(window, "script -qc /bin/bash /dev/null")
+			// _ = execInWindow(window, `python3 -c 'import pty;pty.spawn("/bin/bash")`)
+			_ = execInWindow(window, "expect -c 'spawn bash; interact'")
+				time.Sleep(500 * time.Millisecond)
+			_ = execInWindow(window, "C-z")
+				time.Sleep(500 * time.Millisecond)
+			_ = execInWindow(window, "stty size; stty raw -echo; fg")
+				time.Sleep(500 * time.Millisecond)
+			_ = execInWindow(window, "export TERM=xterm-256color")
+			logger.Info("Upgrade commands executed")
+		}
 	}
 }
 
