@@ -13,7 +13,7 @@ import (
 )
 
 var opts struct {
-	Iface   string `short:"i" long:"host" description:"Interface address on which to bind" default:"127.0.0.1" required:"true"`
+	Iface   string `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
 	Port    string `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
 	Target  string `short:"t" long:"target" description:"Tmux session name" default:"nx"`
 	Verbose bool   `short:"v" long:"verbose" description:"Debug logging"`
@@ -55,7 +55,7 @@ func main() {
 	if err != nil {
 		logger.Fatal("listener: ", err)
 	}
-	logger.Debug("listening on: ", connStr)
+	logger.Info("listening on: ", connStr)
 
 	for {
 		logger.Debug("waiting on new connection")
