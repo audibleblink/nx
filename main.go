@@ -64,7 +64,6 @@ func main() {
 			logger.Fatal("conn: ", err)
 		}
 		logger.Info(fmt.Sprintf("new connection: %s", conn.RemoteAddr().String()))
-		defer conn.Close()
 
 		// create the unix domain socket filename
 		sockF, err := genTempFilename("nx")
@@ -130,17 +129,12 @@ func handleTCPUnix(httpConn net.Conn, domainSocket net.Listener) error {
 		sockC <- domainSocket.Addr().String()
 	}()
 
-	for {
-		select {
-		case file := <-sockC:
-			logger.Warn("receiver quit: ", file)
-			// maybe this is recoverable if we don't allow sockF cleanup?
-			break
-		case msg := <-netC:
-			logger.Warn(msg)
-			break
-		}
-		break
+	select {
+	case file := <-sockC:
+		logger.Warn("receiver quit: ", file)
+		// maybe this is recoverable if we don't allow sockF cleanup?
+	case msg := <-netC:
+		logger.Warn(msg)
 	}
 	return nil
 }
