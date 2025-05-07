@@ -9,9 +9,9 @@ import (
 	"path"
 	"time"
 
+	"github.com/audibleblink/logerr"
 	"github.com/disneystreaming/gomux"
 	"github.com/jessevdk/go-flags"
-	"github.com/sumup-oss/go-pkgs/logger"
 )
 
 var (
@@ -30,32 +30,32 @@ func main() {
 	connStr := fmt.Sprintf("%s:%s", opts.Iface, opts.Port)
 	listener, err := net.Listen("tcp", connStr)
 	if err != nil {
-		logger.Fatal("listener: ", err)
+		logerr.Fatal("listener:", err)
 	}
-	logger.Info("listening on: ", connStr)
+	logerr.Info("listening on:", connStr)
 
 	for {
-		logger.Debug("waiting on new connection")
+		logerr.Debug("waiting on new connection")
 		conn, err := listener.Accept()
 		if err != nil {
-			logger.Fatal("conn: ", err)
+			logerr.Fatal("conn:", err)
 		}
-		logger.Info(fmt.Sprintf("new connection: %s", conn.RemoteAddr().String()))
+		logerr.Info("new connection:", conn.RemoteAddr().String())
 
 		// create the unix domain socket filename
 		sockF, err := genTempFilename("nx")
 		if err != nil {
-			logger.Error("gen filename: ", err)
+			logerr.Error("gen filename:", err)
 			continue
 		}
 
 		// create the unix domain socket
 		sockH, err := net.Listen("unix", sockF)
 		if err != nil {
-			logger.Error("socket create: ", err)
+			logerr.Error("socket create:", err)
 			continue
 		}
-		logger.Debug(fmt.Sprintf("socket file created: %s", sockF))
+		logerr.Debug("socket file created:", sockF)
 
 		// background: wait and listen for a connection to the domain socket
 		go handleTCPUnix(conn, sockH)
@@ -63,7 +63,7 @@ func main() {
 		// create a tmux window for the reverse shell to run in
 		window, err := newTmuxWindow(session, sockF)
 		if err != nil {
-			logger.Error("tmux window create: ", err)
+			logerr.Error("tmux window create:", err)
 			continue
 		}
 
@@ -71,35 +71,36 @@ func main() {
 		cmd := fmt.Sprintf("socat -d -d stdio unix-connect:'%s'", sockF)
 		err = execInWindow(window, cmd)
 		if err != nil {
-			logger.Error("tmux exec: ", err)
+			logerr.Error("tmux exec:", err)
 			continue
 		}
 
-		logger.Info("new shell: ", conn.RemoteAddr().String())
+		logerr.Info("new shell:", conn.RemoteAddr().String())
 
 		if opts.Auto {
 			// _ = execInWindow(window, "script -qc /bin/bash /dev/null")
 			// _ = execInWindow(window, `python3 -c 'import pty;pty.spawn("/bin/bash")`)
 			_ = execInWindow(window, "expect -c 'spawn bash; interact'")
-				time.Sleep(500 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 			_ = execInWindow(window, "C-z")
-				time.Sleep(500 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 			_ = execInWindow(window, "stty size; stty raw -echo; fg")
-				time.Sleep(500 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 			_ = execInWindow(window, "export TERM=xterm-256color")
-			logger.Info("Upgrade commands executed")
+			logerr.Info("Upgrade commands executed")
 		}
 	}
 }
 
 // handleTCPUnix handles the connection between the network and the unix domain socket
 func handleTCPUnix(httpConn net.Conn, domainSocket net.Listener) error {
+	log := logerr.Add("handleTCPUnix")
 	defer domainSocket.Close()
 	netC, sockC := make(chan error), make(chan error)
 
 	socketConn, err := domainSocket.Accept()
 	if err != nil {
-		logger.Warn("socket connection: ", err)
+		log.Warn("socket connection:", err)
 		return err
 	}
 	defer socketConn.Close()
@@ -119,9 +120,9 @@ func handleTCPUnix(httpConn net.Conn, domainSocket net.Listener) error {
 	// Wait for either goroutine to finish and return any error
 	select {
 	case err = <-netC:
-		logger.Warn("shell died: ", err)
+		log.Warn("shell died:", err)
 	case err = <-sockC:
-		logger.Warn("tmux died: ", err)
+		log.Warn("tmux died:", err)
 	}
 	return err
 }
@@ -133,7 +134,6 @@ func genTempFilename(stub string) (string, error) {
 	// TODO: configurable state path or XDG
 	file, err := os.CreateTemp(".state", fmt.Sprintf("%s.*.sock", stub))
 	if err != nil {
-		err = fmt.Errorf("temp file failed: %w", err)
 		return "", err
 	}
 	file.Close()
@@ -143,18 +143,19 @@ func genTempFilename(stub string) (string, error) {
 
 // Handles tmux session existance
 func prepareTmux(tmSessName string) (tmux *gomux.Session, err error) {
+	log := logerr.Add("prepareTmux")
 	exists, err := gomux.CheckSessionExists(tmSessName)
 	if err != nil {
 		return
 	}
 
 	if !exists {
-		logger.Debug("creating new tmux session")
+		log.Debug("creating new tmux session")
 		return gomux.NewSession(tmSessName)
 	}
 
 	// session is in tmux, but not tracked with server yet
-	logger.Debug("tracking existing tmux sessions: ", opts.Target)
+	log.Debug("existing tmux session:", opts.Target)
 	tmux = &gomux.Session{Name: tmSessName}
 	return
 }
@@ -168,7 +169,7 @@ func newTmuxWindow(session *gomux.Session, socketFile string) (window *gomux.Win
 
 // execInWindow executes a command in the tmux window
 func execInWindow(window *gomux.Window, cmd string) error {
-	logger.Debug("sent to tmux: ", cmd)
+	logerr.Debug("tmux command:", cmd)
 	return window.Panes[0].Exec(cmd) // new windows always have a 0-index pane
 }
 
@@ -179,11 +180,19 @@ func init() {
 		os.Exit(0)
 	case nil:
 	default:
-		logger.Fatal("opts: ", err)
+		logerr.Fatal(err)
 	}
 
+	logerr.DefaultLogger().
+		EnableTimestamps().
+		EnableColors().
+		SetContextSeparator(" ❯ ").
+		SetContext("nx").
+		SetLogLevel(logerr.LogLevelInfo).
+		SetAsGlobal()
+
 	if opts.Verbose {
-		logger.SetLevel(logger.DebugLevel)
+		logerr.SetLogLevel(logerr.LogLevelDebug)
 	}
 
 	// Ensure socket folder exists
@@ -193,7 +202,7 @@ func init() {
 
 	session, err = prepareTmux(opts.Target)
 	if err != nil {
-		logger.Fatal("tmux: ", err)
+		logerr.Add("tmux").Fatal(err)
 	}
 
 	// Set up signal handling for graceful shutdown
@@ -203,7 +212,7 @@ func init() {
 	// Start cleanup goroutine
 	go func() {
 		sig := <-sigChan
-		logger.Info("Received interrupt signal, ", sig)
+		logerr.Info("Received interrupt signal:", sig)
 		cleanup()
 		os.Exit(0)
 	}()
