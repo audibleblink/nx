@@ -22,18 +22,24 @@ Usage:
   nx [OPTIONS]
 
 Application Options:
-      --auto     Attempt to auto-upgrade to a tty
+      --auto     Attempt to auto-upgrade to a tty with customizable sleep time
   -i, --host=    Interface address on which to bind (default: 0.0.0.0)
   -p, --port=    Port on which to bind (default: 8443)
   -t, --target=  Tmux session name (default: nx)
   -v, --verbose  Debug logging
-
+  --sleep=   adjust if --auto is failing (default: 500ms)
 ```
+
+## Features
+
+- **Auto-upgrade to TTY**: Use `--auto` flag to automatically upgrade your shell to a TTY
+- **XDG runtime paths**: Automatically uses XDG runtime directory for socket location
+- **Signal handling**: Properly handles signals and performs cleanup
 
 ## How?
 
 unix domain sockets mannn
 
 ## ToDo
-- [ ] recover ctrl-c whoopsies since the reverse shell is tied to a unix domain socket and not a terminal
-- [ ] some mechanism to auto-upgrade the shell to a TTY via tmux-send-keys or sourcing a script that just adds the keybinds, so that it's up to the user to fire off the upgrade
+- [ ] maybe a plugin system for sending commands on connection
+- [ ] alternatively, multiplex the connection to allow `curl | sh` from the same port
