@@ -43,3 +43,4 @@ unix domain sockets mannn
 ## ToDo
 - [ ] maybe a plugin system for sending commands on connection
 - [ ] alternatively, multiplex the connection to allow `curl | sh` from the same port
+- [ ] handle stdio with the socket directly with `nx`, eliminating the need for `socat`
