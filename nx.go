@@ -7,16 +7,19 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"time"
 
+	"github.com/adrg/xdg"
 	"github.com/audibleblink/logerr"
 	"github.com/disneystreaming/gomux"
 	"github.com/jessevdk/go-flags"
 )
 
 var (
-	session *gomux.Session
-	opts    struct {
+	socketDir = filepath.Join(xdg.RuntimeDir, "nx")
+	session   *gomux.Session
+	opts      struct {
 		Auto    bool   `long:"auto" description:"Attempt to auto-upgrade to a tty"`
 		Iface   string `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
 		Port    string `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
@@ -43,7 +46,7 @@ func main() {
 		logerr.Info("new connection:", conn.RemoteAddr().String())
 
 		// create the unix domain socket filename
-		sockF, err := genTempFilename("nx")
+		sockF, err := genTempFilename()
 		if err != nil {
 			logerr.Error("gen filename:", err)
 			continue
@@ -130,9 +133,8 @@ func handleTCPUnix(httpConn net.Conn, domainSocket net.Listener) error {
 // create tempfile name. socket file can't exists when we start
 // the listener, so we delete it immediately
 // i'm using it for the convenience of getting abs paths
-func genTempFilename(stub string) (string, error) {
-	// TODO: configurable state path or XDG
-	file, err := os.CreateTemp(".state", fmt.Sprintf("%s.*.sock", stub))
+func genTempFilename() (string, error) {
+	file, err := os.CreateTemp(socketDir, "*.sock")
 	if err != nil {
 		return "", err
 	}
@@ -196,8 +198,8 @@ func init() {
 	}
 
 	// Ensure socket folder exists
-	if _, err := os.Stat(".state"); os.IsNotExist(err) {
-		os.Mkdir(".state", 0o700)
+	if _, err := os.Stat(socketDir); os.IsNotExist(err) {
+		os.Mkdir(socketDir, 0o700)
 	}
 
 	session, err = prepareTmux(opts.Target)
@@ -220,6 +222,8 @@ func init() {
 
 // cleanup removes any socket files and performs other cleanup tasks
 func cleanup() {
-	os.RemoveAll(".state")
-	// gomux.KillSession(opts.Target)
+	err := os.RemoveAll(socketDir)
+	if err != nil {
+		logerr.Error("unable to delete:", err)
+	}
 }

@@ -5,6 +5,7 @@ go 1.24.1
 toolchain go1.24.2
 
 require (
+	github.com/adrg/xdg v0.5.3
 	github.com/audibleblink/logerr v0.3.4
 	github.com/disneystreaming/gomux v0.0.0-20200305000114-de122d6df124
 	github.com/jessevdk/go-flags v1.6.1
