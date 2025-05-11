@@ -20,11 +20,12 @@ var (
 	socketDir = filepath.Join(xdg.RuntimeDir, "nx")
 	session   *gomux.Session
 	opts      struct {
-		Auto    bool   `long:"auto" description:"Attempt to auto-upgrade to a tty"`
-		Iface   string `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
-		Port    string `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
-		Target  string `short:"t" long:"target" description:"Tmux session name" default:"nx"`
-		Verbose bool   `short:"v" long:"verbose" description:"Debug logging"`
+		Auto    bool          `long:"auto" description:"Attempt to auto-upgrade to a tty"`
+		Iface   string        `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
+		Port    string        `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
+		Target  string        `short:"t" long:"target" description:"Tmux session name" default:"nx"`
+		Verbose bool          `short:"v" long:"verbose" description:"Debug logging"`
+		Sleep   time.Duration `long:"sleep" description:"adjust if --auto is failing" default:"500ms"`
 	}
 )
 
@@ -84,11 +85,11 @@ func main() {
 			// _ = execInWindow(window, "script -qc /bin/bash /dev/null")
 			// _ = execInWindow(window, `python3 -c 'import pty;pty.spawn("/bin/bash")`)
 			_ = execInWindow(window, "expect -c 'spawn bash; interact'")
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(opts.Sleep)
 			_ = execInWindow(window, "C-z")
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(opts.Sleep)
 			_ = execInWindow(window, "stty size; stty raw -echo; fg")
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(opts.Sleep)
 			_ = execInWindow(window, "export TERM=xterm-256color")
 			logerr.Info("Upgrade commands executed")
 		}
@@ -176,12 +177,8 @@ func execInWindow(window *gomux.Window, cmd string) error {
 }
 
 func init() {
-	_, err := flags.Parse(&opts)
-	switch err {
-	case flags.ErrHelp:
-		os.Exit(0)
-	case nil:
-	default:
+	var err error
+	if _, err := flags.Parse(&opts); err != nil {
 		logerr.Fatal(err)
 	}
 
