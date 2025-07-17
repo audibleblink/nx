@@ -72,7 +72,8 @@ func main() {
 		}
 
 		// create the tmux command to run in the new window
-		cmd := fmt.Sprintf("socat -d -d stdio unix-connect:'%s'", sockF)
+		// intentional space prefix to keep shell history clean
+		cmd := fmt.Sprintf(" socat -d -d stdio unix-connect:'%s'", sockF)
 		err = execInWindow(window, cmd)
 		if err != nil {
 			logerr.Error("tmux exec:", err)
@@ -80,6 +81,10 @@ func main() {
 		}
 
 		logerr.Info("new shell:", conn.RemoteAddr().String())
+
+		// set env var back home for convenience
+		time.Sleep(opts.Sleep)
+		_ = execInWindow(window, fmt.Sprintf(" export ME=%s", connStr))
 
 		if opts.Auto {
 			// _ = execInWindow(window, "script -qc /bin/bash /dev/null")
