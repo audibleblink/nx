@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/adrg/xdg"
@@ -18,9 +20,11 @@ import (
 
 var (
 	socketDir = filepath.Join(xdg.RuntimeDir, "nx")
+	pluginDir = filepath.Join(xdg.ConfigHome, "nx", "plugins")
 	session   *gomux.Session
 	opts      struct {
-		Auto    bool          `long:"auto" description:"Attempt to auto-upgrade to a tty"`
+		Auto    bool          `long:"auto" description:"Attempt to auto-upgrade to a tty (deprecated: use --exec auto)"`
+		Exec    string        `long:"exec" description:"Execute plugin script on connection"`
 		Iface   string        `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
 		Port    string        `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
 		Target  string        `short:"t" long:"target" description:"Tmux session name" default:"nx"`
@@ -86,17 +90,16 @@ func main() {
 		time.Sleep(opts.Sleep)
 		_ = execInWindow(window, fmt.Sprintf(" export ME=%s", connStr))
 
+		// Handle plugin execution
 		if opts.Auto {
-			// _ = execInWindow(window, "script -qc /bin/bash /dev/null")
-			// _ = execInWindow(window, `python3 -c 'import pty;pty.spawn("/bin/bash")`)
-			_ = execInWindow(window, "expect -c 'spawn bash; interact'")
-			time.Sleep(opts.Sleep)
-			_ = execInWindow(window, "C-z")
-			time.Sleep(opts.Sleep)
-			_ = execInWindow(window, "stty size; stty raw -echo; fg")
-			time.Sleep(opts.Sleep)
-			_ = execInWindow(window, "export TERM=xterm-256color")
-			logerr.Info("Upgrade commands executed")
+			opts.Exec = "auto" // backward compatibility
+		}
+
+		if opts.Exec != "" {
+			err := executePlugin(opts.Exec, window)
+			if err != nil {
+				logerr.Error("plugin execution:", err)
+			}
 		}
 	}
 }
@@ -181,6 +184,48 @@ func execInWindow(window *gomux.Window, cmd string) error {
 	return window.Panes[0].Exec(cmd) // new windows always have a 0-index pane
 }
 
+// executePlugin executes commands from a plugin script
+func executePlugin(pluginName string, window *gomux.Window) error {
+	log := logerr.Add("executePlugin")
+
+	pluginPath := filepath.Join(pluginDir, pluginName+".sh")
+	if _, err := os.Stat(pluginPath); os.IsNotExist(err) {
+		return fmt.Errorf("plugin not found: %s", pluginPath)
+	}
+
+	file, err := os.Open(pluginPath)
+	if err != nil {
+		return fmt.Errorf("failed to open plugin: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		log.Debug("executing plugin command:", line)
+		err := execInWindow(window, line)
+		if err != nil {
+			log.Warn("plugin command failed:", err)
+		}
+
+		// Default sleep between commands
+		time.Sleep(opts.Sleep)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading plugin: %w", err)
+	}
+
+	log.Info("Plugin executed:", pluginName)
+	return nil
+}
+
 func init() {
 	var err error
 	if _, err := flags.Parse(&opts); err != nil {
@@ -202,6 +247,11 @@ func init() {
 	// Ensure socket folder exists
 	if _, err := os.Stat(socketDir); os.IsNotExist(err) {
 		os.Mkdir(socketDir, 0o700)
+	}
+
+	// Ensure plugin folder exists
+	if _, err := os.Stat(pluginDir); os.IsNotExist(err) {
+		os.MkdirAll(pluginDir, 0o755)
 	}
 
 	session, err = prepareTmux(opts.Target)
