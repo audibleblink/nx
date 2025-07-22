@@ -75,6 +75,10 @@ unix domain sockets mannn
 
 ## ToDo
 - [x] ~~maybe a plugin system for sending commands on connection~~ ✅ **DONE**: Implemented plugin system with `--exec` flag
+- [x] some mechanism to auto-upgrade the shell to a TTY via tmux-send-keys or sourcing a script that just adds the keybinds, so that it's up to the user to fire off the upgrade
 - [ ] alternatively, multiplex the connection to allow `curl | sh` from the same port
 - [ ] handle stdio with the socket directly with `nx`, eliminating the need for `socat`
 - [ ] facilitate installing plugins dir to xdg
+- [ ] multiplexing listener
+  - [ ] same port, but detects plain revshell vs http request. could allow scripts to be `curl |sh`d instead of relying on `tmux send-keys`
+  - [ ] super simple chisel-light
