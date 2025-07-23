@@ -124,3 +124,4 @@ unix domain sockets mannn
 - [ ] handle stdio with the socket directly with `nx`, eliminating the need for `socat`
 - [ ] facilitate installing plugins dir to xdg
 - [ ] super simple chisel-light functionality
+    - [ ] maybe cmux + ssh? https://github.com/gliderlabs/ssh/blob/master/_examples/ssh-remoteforward/portforward.go
