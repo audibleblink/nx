@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"mime"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path"
@@ -17,40 +17,22 @@ import (
 	"github.com/audibleblink/logerr"
 	"github.com/disneystreaming/gomux"
 	"github.com/jessevdk/go-flags"
+	"github.com/soheilhy/cmux"
 )
-
-// Protocol types for multiplexing
-type ProtocolType string
-
-const (
-	ProtocolHTTP  ProtocolType = "http"
-	ProtocolShell ProtocolType = "shell"
-)
-
-// bufferedConn wraps a connection with a buffered reader to allow peeking
-type bufferedConn struct {
-	reader *bufio.Reader
-	net.Conn
-}
-
-// Read implements the net.Conn interface using the buffered reader
-func (bc *bufferedConn) Read(b []byte) (int, error) {
-	return bc.reader.Read(b)
-}
 
 var (
 	socketDir = filepath.Join(xdg.RuntimeDir, "nx")
 	pluginDir = filepath.Join(xdg.ConfigHome, "nx", "plugins")
 	session   *gomux.Session
 	opts      struct {
-		Auto     bool          `long:"auto" description:"Attempt to auto-upgrade to a tty (deprecated: use --exec auto)"`
+		Auto     bool          `long:"auto" description:"Attempt to auto-upgrade to a tty (uses --exec auto)"`
 		Exec     string        `long:"exec" description:"Execute plugin script on connection"`
 		Iface    string        `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
 		Port     string        `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
-		Target   string        `short:"t" long:"target" description:"Tmux session name" default:"nx"`
-		Verbose  bool          `short:"v" long:"verbose" description:"Debug logging"`
-		Sleep    time.Duration `long:"sleep" description:"adjust if --auto is failing" default:"500ms"`
 		ServeDir string        `short:"d" long:"serve-dir" description:"Directory to serve files from over HTTP"`
+		Target   string        `short:"t" long:"target" description:"Tmux session name" default:"nx"`
+		Sleep    time.Duration `long:"sleep" description:"adjust if --auto is failing" default:"500ms"`
+		Verbose  bool          `short:"v" long:"verbose" description:"Debug logging"`
 	}
 )
 
@@ -63,7 +45,7 @@ func main() {
 		logerr.Info("File serving enabled from:", opts.ServeDir)
 	}
 
-	// create revshell listener
+	// create listener
 	connStr := fmt.Sprintf("%s:%s", opts.Iface, opts.Port)
 	listener, err := net.Listen("tcp", connStr)
 	if err != nil {
@@ -71,246 +53,131 @@ func main() {
 	}
 	logerr.Info("listening on:", connStr)
 
+	mux := cmux.New(listener)
+	mux.SetReadTimeout(2 * time.Second) // Set a read timeout to avoid hanging on protocol detection
+
+	// Create matchers for different protocols
+	httpL := mux.Match(cmux.HTTP1Fast())
+	shellL := mux.Match(cmux.Any())
+
+	if opts.ServeDir != "" {
+		httpServer := setupHTTPServer(opts.ServeDir)
+		go func() {
+			logerr.Info("HTTP server starting")
+			if err := httpServer.Serve(httpL); err != nil {
+				logerr.Error("HTTP server error:", err)
+			}
+		}()
+	} else {
+		go func() {
+			for {
+				conn, err := httpL.Accept()
+				if err != nil {
+					logerr.Error("HTTP listener error:", err)
+					continue
+				}
+				logerr.Warn("HTTP request received but no serve directory specified")
+				conn.Close()
+			}
+		}()
+	}
+
+	go handleShellListener(shellL, connStr)
+
+	logerr.Info("Starting connection multiplexer")
+	if err := mux.Serve(); err != nil {
+		logerr.Fatal("mux serve:", err)
+	}
+}
+
+// setupHTTPServer creates and configures the HTTP server
+func setupHTTPServer(serveDir string) *http.Server {
+	fileServer := http.FileServer(http.Dir(serveDir))
+
+	// Add logging middleware
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logerr.Info("HTTP request:", r.Method, r.URL.Path)
+		fileServer.ServeHTTP(w, r)
+	})
+
+	return &http.Server{
+		Handler: handler,
+		// ReadTimeout:  10 * time.Second,
+		// WriteTimeout: 10 * time.Second,
+		// IdleTimeout:  60 * time.Second,
+	}
+}
+
+// handleShellListener handles shell connections from the cmux listener
+func handleShellListener(listener net.Listener, connStr string) {
 	for {
-		logerr.Debug("waiting on new connection")
 		conn, err := listener.Accept()
 		if err != nil {
-			logerr.Fatal("conn:", err)
-		}
-		logerr.Info("new connection:", conn.RemoteAddr().String())
-
-		// Detect protocol type
-		protocol, wrappedConn := detectProtocol(conn)
-
-		if protocol == ProtocolHTTP {
-			if opts.ServeDir != "" {
-				go handleHTTPConnection(wrappedConn, opts.ServeDir)
-				continue
-			} else {
-				logerr.Warn("HTTP request received but no serve directory specified")
-				wrappedConn.Close()
-				continue
-			}
-		}
-
-		// Handle shell connections (existing logic)
-		conn = wrappedConn
-
-		// create the unix domain socket filename
-		sockF, err := genTempFilename()
-		if err != nil {
-			logerr.Error("gen filename:", err)
+			logerr.Error("shell listener accept:", err)
 			continue
 		}
 
-		// create the unix domain socket
-		sockH, err := net.Listen("unix", sockF)
-		if err != nil {
-			logerr.Error("socket create:", err)
-			continue
-		}
-		logerr.Debug("socket file created:", sockF)
+		logerr.Info("new shell connection:", conn.RemoteAddr().String())
 
-		// background: wait and listen for a connection to the domain socket
-		go handleTCPUnix(conn, sockH)
-
-		// create a tmux window for the reverse shell to run in
-		window, err := newTmuxWindow(session, sockF)
-		if err != nil {
-			logerr.Error("tmux window create:", err)
-			continue
-		}
-
-		// create the tmux command to run in the new window
-		// intentional space prefix to keep shell history clean
-		cmd := fmt.Sprintf(" socat -d -d stdio unix-connect:'%s'", sockF)
-		err = execInWindow(window, cmd)
-		if err != nil {
-			logerr.Error("tmux exec:", err)
-			continue
-		}
-
-		logerr.Info("new shell:", conn.RemoteAddr().String())
-
-		// set env var back home for convenience
-		time.Sleep(opts.Sleep)
-		_ = execInWindow(window, fmt.Sprintf(" export ME=%s", connStr))
-
-		// Handle plugin execution
-		if opts.Auto {
-			opts.Exec = "auto" // backward compatibility
-		}
-
-		if opts.Exec != "" {
-			err := executePlugin(opts.Exec, window)
+		// Handle shell connection (existing logic from main)
+		go func(conn net.Conn) {
+			// create the unix domain socket filename
+			sockF, err := genTempFilename()
 			if err != nil {
-				logerr.Error("plugin execution:", err)
+				logerr.Error("gen filename:", err)
+				conn.Close()
+				return
 			}
-		}
+
+			// create the unix domain socket
+			sockH, err := net.Listen("unix", sockF)
+			if err != nil {
+				logerr.Error("socket create:", err)
+				conn.Close()
+				return
+			}
+			logerr.Debug("socket file created:", sockF)
+
+			// background: wait and listen for a connection to the domain socket
+			go handleTCPUnix(conn, sockH)
+
+			// create a tmux window for the reverse shell to run in
+			window, err := newTmuxWindow(session, sockF)
+			if err != nil {
+				logerr.Error("tmux window create:", err)
+				conn.Close()
+				return
+			}
+
+			// create the tmux command to run in the new window
+			// intentional space prefix to keep shell history clean
+			cmd := fmt.Sprintf(" socat -d -d stdio unix-connect:'%s'", sockF)
+			err = execInWindow(window, cmd)
+			if err != nil {
+				logerr.Error("tmux exec:", err)
+				conn.Close()
+				return
+			}
+
+			logerr.Info("new shell:", conn.RemoteAddr().String())
+
+			// set env var back home for convenience
+			time.Sleep(opts.Sleep)
+			_ = execInWindow(window, fmt.Sprintf(" export ME=%s", connStr))
+
+			// Handle plugin execution
+			if opts.Auto {
+				opts.Exec = "auto" // backward compatibility
+			}
+
+			if opts.Exec != "" {
+				err := executePlugin(opts.Exec, window)
+				if err != nil {
+					logerr.Error("plugin execution:", err)
+				}
+			}
+		}(conn)
 	}
-}
-
-// detectProtocol inspects the first 4 bytes of a connection to determine protocol type
-func detectProtocol(conn net.Conn) (ProtocolType, net.Conn) {
-	reader := bufio.NewReader(conn)
-	peek, err := reader.Peek(4)
-
-	if err == nil && len(peek) >= 4 && string(peek) == "GET " {
-		return ProtocolHTTP, &bufferedConn{reader, conn}
-	}
-
-	return ProtocolShell, &bufferedConn{reader, conn}
-}
-
-// handleHTTPConnection processes HTTP requests for file serving
-func handleHTTPConnection(conn net.Conn, serveDir string) {
-	defer conn.Close()
-
-	reader := bufio.NewReader(conn)
-
-	// Read the HTTP request line
-	requestLine, _, err := reader.ReadLine()
-	if err != nil {
-		logerr.Error("Failed to read HTTP request:", err)
-		return
-	}
-
-	// Parse the request line
-	parts := strings.Fields(string(requestLine))
-	if len(parts) < 3 {
-		sendHTTPError(conn, 400, "Bad Request")
-		return
-	}
-
-	method := parts[0]
-	path := parts[1]
-
-	logerr.Info("HTTP request:", method, path)
-
-	// Only support GET method
-	if method != "GET" {
-		sendHTTPError(conn, 405, "Method Not Allowed")
-		return
-	}
-
-	// Serve the file
-	serveFile(conn, serveDir, path)
-}
-
-// sendHTTPError sends an HTTP error response
-func sendHTTPError(conn net.Conn, code int, message string) {
-	statusText := map[int]string{
-		400: "Bad Request",
-		404: "Not Found",
-		405: "Method Not Allowed",
-		500: "Internal Server Error",
-	}
-
-	text := statusText[code]
-	if text == "" {
-		text = "Unknown Error"
-	}
-
-	response := fmt.Sprintf("HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
-		code, text, len(message), message)
-	conn.Write([]byte(response))
-}
-
-// serveFile serves a file from the specified directory with security checks
-func serveFile(conn net.Conn, serveDir, requestPath string) {
-	// Clean the path and prevent directory traversal
-	cleanPath := filepath.Clean(requestPath)
-	if strings.Contains(cleanPath, "..") {
-		logerr.Warn("Directory traversal attempt:", requestPath)
-		sendHTTPError(conn, 404, "Not Found")
-		return
-	}
-
-	// Remove leading slash for filepath.Join
-	if strings.HasPrefix(cleanPath, "/") {
-		cleanPath = cleanPath[1:]
-	}
-
-	// Default to index.html for directory requests
-	if cleanPath == "" || strings.HasSuffix(cleanPath, "/") {
-		cleanPath = filepath.Join(cleanPath, "index.html")
-	}
-
-	// Construct full file path
-	fullPath := filepath.Join(serveDir, cleanPath)
-
-	// Ensure the resolved path is still within serveDir
-	absServeDir, err := filepath.Abs(serveDir)
-	if err != nil {
-		logerr.Error("Failed to resolve serve directory:", err)
-		sendHTTPError(conn, 500, "Internal Server Error")
-		return
-	}
-
-	absFullPath, err := filepath.Abs(fullPath)
-	if err != nil {
-		logerr.Error("Failed to resolve file path:", err)
-		sendHTTPError(conn, 500, "Internal Server Error")
-		return
-	}
-
-	if !strings.HasPrefix(absFullPath, absServeDir) {
-		logerr.Warn("Path traversal attempt:", requestPath)
-		sendHTTPError(conn, 404, "Not Found")
-		return
-	}
-
-	// Don't serve hidden files
-	if strings.HasPrefix(filepath.Base(cleanPath), ".") {
-		logerr.Warn("Hidden file access attempt:", requestPath)
-		sendHTTPError(conn, 404, "Not Found")
-		return
-	}
-
-	// Check if file exists and is not a directory
-	fileInfo, err := os.Stat(fullPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			sendHTTPError(conn, 404, "Not Found")
-		} else {
-			logerr.Error("File stat error:", err)
-			sendHTTPError(conn, 500, "Internal Server Error")
-		}
-		return
-	}
-
-	if fileInfo.IsDir() {
-		sendHTTPError(conn, 404, "Not Found")
-		return
-	}
-
-	// Open and serve the file
-	file, err := os.Open(fullPath)
-	if err != nil {
-		logerr.Error("Failed to open file:", err)
-		sendHTTPError(conn, 500, "Internal Server Error")
-		return
-	}
-	defer file.Close()
-
-	// Detect content type
-	contentType := mime.TypeByExtension(filepath.Ext(fullPath))
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-
-	// Send HTTP response headers
-	response := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
-		contentType, fileInfo.Size())
-	conn.Write([]byte(response))
-
-	// Send file content
-	_, err = io.Copy(conn, file)
-	if err != nil {
-		logerr.Error("Failed to send file:", err)
-	}
-
-	logerr.Info("Served file:", requestPath, "->", fullPath)
 }
 
 // handleTCPUnix handles the connection between the network and the unix domain socket
