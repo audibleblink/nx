@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"os"
 	"os/signal"
@@ -18,22 +19,50 @@ import (
 	"github.com/jessevdk/go-flags"
 )
 
+// Protocol types for multiplexing
+type ProtocolType string
+
+const (
+	ProtocolHTTP  ProtocolType = "http"
+	ProtocolShell ProtocolType = "shell"
+)
+
+// bufferedConn wraps a connection with a buffered reader to allow peeking
+type bufferedConn struct {
+	reader *bufio.Reader
+	net.Conn
+}
+
+// Read implements the net.Conn interface using the buffered reader
+func (bc *bufferedConn) Read(b []byte) (int, error) {
+	return bc.reader.Read(b)
+}
+
 var (
 	socketDir = filepath.Join(xdg.RuntimeDir, "nx")
 	pluginDir = filepath.Join(xdg.ConfigHome, "nx", "plugins")
 	session   *gomux.Session
 	opts      struct {
-		Auto    bool          `long:"auto" description:"Attempt to auto-upgrade to a tty (deprecated: use --exec auto)"`
-		Exec    string        `long:"exec" description:"Execute plugin script on connection"`
-		Iface   string        `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
-		Port    string        `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
-		Target  string        `short:"t" long:"target" description:"Tmux session name" default:"nx"`
-		Verbose bool          `short:"v" long:"verbose" description:"Debug logging"`
-		Sleep   time.Duration `long:"sleep" description:"adjust if --auto is failing" default:"500ms"`
+		Auto     bool          `long:"auto" description:"Attempt to auto-upgrade to a tty (deprecated: use --exec auto)"`
+		Exec     string        `long:"exec" description:"Execute plugin script on connection"`
+		Iface    string        `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
+		Port     string        `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
+		Target   string        `short:"t" long:"target" description:"Tmux session name" default:"nx"`
+		Verbose  bool          `short:"v" long:"verbose" description:"Debug logging"`
+		Sleep    time.Duration `long:"sleep" description:"adjust if --auto is failing" default:"500ms"`
+		ServeDir string        `short:"d" long:"serve-dir" description:"Directory to serve files from over HTTP"`
 	}
 )
 
 func main() {
+	// Validate serve directory if provided
+	if opts.ServeDir != "" {
+		if _, err := os.Stat(opts.ServeDir); os.IsNotExist(err) {
+			logerr.Fatal("Serve directory does not exist:", opts.ServeDir)
+		}
+		logerr.Info("File serving enabled from:", opts.ServeDir)
+	}
+
 	// create revshell listener
 	connStr := fmt.Sprintf("%s:%s", opts.Iface, opts.Port)
 	listener, err := net.Listen("tcp", connStr)
@@ -49,6 +78,23 @@ func main() {
 			logerr.Fatal("conn:", err)
 		}
 		logerr.Info("new connection:", conn.RemoteAddr().String())
+
+		// Detect protocol type
+		protocol, wrappedConn := detectProtocol(conn)
+
+		if protocol == ProtocolHTTP {
+			if opts.ServeDir != "" {
+				go handleHTTPConnection(wrappedConn, opts.ServeDir)
+				continue
+			} else {
+				logerr.Warn("HTTP request received but no serve directory specified")
+				wrappedConn.Close()
+				continue
+			}
+		}
+
+		// Handle shell connections (existing logic)
+		conn = wrappedConn
 
 		// create the unix domain socket filename
 		sockF, err := genTempFilename()
@@ -102,6 +148,169 @@ func main() {
 			}
 		}
 	}
+}
+
+// detectProtocol inspects the first 4 bytes of a connection to determine protocol type
+func detectProtocol(conn net.Conn) (ProtocolType, net.Conn) {
+	reader := bufio.NewReader(conn)
+	peek, err := reader.Peek(4)
+
+	if err == nil && len(peek) >= 4 && string(peek) == "GET " {
+		return ProtocolHTTP, &bufferedConn{reader, conn}
+	}
+
+	return ProtocolShell, &bufferedConn{reader, conn}
+}
+
+// handleHTTPConnection processes HTTP requests for file serving
+func handleHTTPConnection(conn net.Conn, serveDir string) {
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+
+	// Read the HTTP request line
+	requestLine, _, err := reader.ReadLine()
+	if err != nil {
+		logerr.Error("Failed to read HTTP request:", err)
+		return
+	}
+
+	// Parse the request line
+	parts := strings.Fields(string(requestLine))
+	if len(parts) < 3 {
+		sendHTTPError(conn, 400, "Bad Request")
+		return
+	}
+
+	method := parts[0]
+	path := parts[1]
+
+	logerr.Info("HTTP request:", method, path)
+
+	// Only support GET method
+	if method != "GET" {
+		sendHTTPError(conn, 405, "Method Not Allowed")
+		return
+	}
+
+	// Serve the file
+	serveFile(conn, serveDir, path)
+}
+
+// sendHTTPError sends an HTTP error response
+func sendHTTPError(conn net.Conn, code int, message string) {
+	statusText := map[int]string{
+		400: "Bad Request",
+		404: "Not Found",
+		405: "Method Not Allowed",
+		500: "Internal Server Error",
+	}
+
+	text := statusText[code]
+	if text == "" {
+		text = "Unknown Error"
+	}
+
+	response := fmt.Sprintf("HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+		code, text, len(message), message)
+	conn.Write([]byte(response))
+}
+
+// serveFile serves a file from the specified directory with security checks
+func serveFile(conn net.Conn, serveDir, requestPath string) {
+	// Clean the path and prevent directory traversal
+	cleanPath := filepath.Clean(requestPath)
+	if strings.Contains(cleanPath, "..") {
+		logerr.Warn("Directory traversal attempt:", requestPath)
+		sendHTTPError(conn, 404, "Not Found")
+		return
+	}
+
+	// Remove leading slash for filepath.Join
+	if strings.HasPrefix(cleanPath, "/") {
+		cleanPath = cleanPath[1:]
+	}
+
+	// Default to index.html for directory requests
+	if cleanPath == "" || strings.HasSuffix(cleanPath, "/") {
+		cleanPath = filepath.Join(cleanPath, "index.html")
+	}
+
+	// Construct full file path
+	fullPath := filepath.Join(serveDir, cleanPath)
+
+	// Ensure the resolved path is still within serveDir
+	absServeDir, err := filepath.Abs(serveDir)
+	if err != nil {
+		logerr.Error("Failed to resolve serve directory:", err)
+		sendHTTPError(conn, 500, "Internal Server Error")
+		return
+	}
+
+	absFullPath, err := filepath.Abs(fullPath)
+	if err != nil {
+		logerr.Error("Failed to resolve file path:", err)
+		sendHTTPError(conn, 500, "Internal Server Error")
+		return
+	}
+
+	if !strings.HasPrefix(absFullPath, absServeDir) {
+		logerr.Warn("Path traversal attempt:", requestPath)
+		sendHTTPError(conn, 404, "Not Found")
+		return
+	}
+
+	// Don't serve hidden files
+	if strings.HasPrefix(filepath.Base(cleanPath), ".") {
+		logerr.Warn("Hidden file access attempt:", requestPath)
+		sendHTTPError(conn, 404, "Not Found")
+		return
+	}
+
+	// Check if file exists and is not a directory
+	fileInfo, err := os.Stat(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			sendHTTPError(conn, 404, "Not Found")
+		} else {
+			logerr.Error("File stat error:", err)
+			sendHTTPError(conn, 500, "Internal Server Error")
+		}
+		return
+	}
+
+	if fileInfo.IsDir() {
+		sendHTTPError(conn, 404, "Not Found")
+		return
+	}
+
+	// Open and serve the file
+	file, err := os.Open(fullPath)
+	if err != nil {
+		logerr.Error("Failed to open file:", err)
+		sendHTTPError(conn, 500, "Internal Server Error")
+		return
+	}
+	defer file.Close()
+
+	// Detect content type
+	contentType := mime.TypeByExtension(filepath.Ext(fullPath))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	// Send HTTP response headers
+	response := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
+		contentType, fileInfo.Size())
+	conn.Write([]byte(response))
+
+	// Send file content
+	_, err = io.Copy(conn, file)
+	if err != nil {
+		logerr.Error("Failed to send file:", err)
+	}
+
+	logerr.Info("Served file:", requestPath, "->", fullPath)
 }
 
 // handleTCPUnix handles the connection between the network and the unix domain socket
