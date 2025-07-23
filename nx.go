@@ -2,6 +2,9 @@ package main
 
 import (
 	"bufio"
+	"crypto/rand"
+	"crypto/rsa"
+	"embed"
 	"fmt"
 	"io"
 	"net"
@@ -16,25 +19,83 @@ import (
 	"github.com/adrg/xdg"
 	"github.com/audibleblink/logerr"
 	"github.com/disneystreaming/gomux"
+	"github.com/gliderlabs/ssh"
 	"github.com/jessevdk/go-flags"
 	"github.com/soheilhy/cmux"
+	gossh "golang.org/x/crypto/ssh"
 )
+
+// Embed the plugins directory
+//
+//go:embed plugins/*
+var bundledPlugins embed.FS
 
 var (
 	socketDir = filepath.Join(xdg.RuntimeDir, "nx")
 	pluginDir = filepath.Join(xdg.ConfigHome, "nx", "plugins")
 	session   *gomux.Session
 	opts      struct {
-		Auto     bool          `long:"auto" description:"Attempt to auto-upgrade to a tty (uses --exec auto)"`
-		Exec     string        `long:"exec" description:"Execute plugin script on connection"`
-		Iface    string        `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
-		Port     string        `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
-		ServeDir string        `short:"d" long:"serve-dir" description:"Directory to serve files from over HTTP"`
-		Target   string        `short:"t" long:"target" description:"Tmux session name" default:"nx"`
-		Sleep    time.Duration `long:"sleep" description:"adjust if --auto is failing" default:"500ms"`
-		Verbose  bool          `short:"v" long:"verbose" description:"Debug logging"`
+		Auto           bool          `long:"auto" description:"Attempt to auto-upgrade to a tty (uses --exec auto)"`
+		Exec           string        `long:"exec" description:"Execute plugin script on connection"`
+		InstallPlugins bool          `long:"install-plugins" description:"Install bundled plugins to config directory"`
+		Iface          string        `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
+		Port           string        `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
+		ServeDir       string        `short:"d" long:"serve-dir" description:"Directory to serve files from over HTTP"`
+		Target         string        `short:"t" long:"target" description:"Tmux session name" default:"nx"`
+		Sleep          time.Duration `long:"sleep" description:"adjust if --auto is failing" default:"500ms"`
+		Verbose        bool          `short:"v" long:"verbose" description:"Debug logging"`
+		SSHPass        string        `short:"s" long:"ssh-pass" description:"SSH password (empty = no auth)"`
 	}
 )
+
+// installBundledPlugins copies bundled plugins from the embedded filesystem to the user's config directory
+func installBundledPlugins() error {
+	log := logerr.Add("installBundledPlugins")
+
+	entries, err := bundledPlugins.ReadDir("plugins")
+	if err != nil {
+		return fmt.Errorf("failed to read bundled plugins: %w", err)
+	}
+
+	installedCount := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		content, err := bundledPlugins.ReadFile(filepath.Join("plugins", entry.Name()))
+		if err != nil {
+			log.Warn("Failed to read plugin:", entry.Name(), err)
+			continue
+		}
+
+		destPath := filepath.Join(pluginDir, entry.Name())
+
+		// Check if plugin already exists
+		if _, err := os.Stat(destPath); err == nil {
+			log.Info("Plugin already exists, skipping:", entry.Name())
+			continue
+		}
+
+		// Write plugin file
+		err = os.WriteFile(destPath, content, 0755)
+		if err != nil {
+			log.Warn("Failed to install plugin:", entry.Name(), err)
+			continue
+		}
+
+		log.Info("Installed plugin:", entry.Name())
+		installedCount++
+	}
+
+	if installedCount == 0 {
+		log.Info("No new plugins to install")
+	} else {
+		log.Info("Successfully installed", installedCount, "plugin(s) to:", pluginDir)
+	}
+
+	return nil
+}
 
 func main() {
 	// Validate serve directory if provided
@@ -58,6 +119,7 @@ func main() {
 
 	// Create matchers for different protocols
 	httpL := mux.Match(cmux.HTTP1Fast())
+	sshL := mux.Match(cmux.PrefixMatcher("SSH-"))
 	shellL := mux.Match(cmux.Any())
 
 	if opts.ServeDir != "" {
@@ -80,6 +142,18 @@ func main() {
 				conn.Close()
 			}
 		}()
+	}
+
+	// Setup SSH tunneling server
+	if sshServer, err := setupSSHServer(opts.SSHPass); err == nil {
+		go func() {
+			logerr.Info("[SSH] Tunneling enabled (pass:", opts.SSHPass != "")
+			if err := sshServer.Serve(sshL); err != nil {
+				logerr.Error("SSH server error:", err)
+			}
+		}()
+	} else {
+		logerr.Error("Failed to setup SSH server:", err)
 	}
 
 	go handleShellListener(shellL, connStr)
@@ -106,6 +180,53 @@ func setupHTTPServer(serveDir string) *http.Server {
 		// WriteTimeout: 10 * time.Second,
 		// IdleTimeout:  60 * time.Second,
 	}
+}
+
+// setupSSHServer creates and configures the SSH server for tunneling
+func setupSSHServer(password string) (*ssh.Server, error) {
+	forwardHandler := &ssh.ForwardedTCPHandler{}
+
+	server := &ssh.Server{
+		Handler: func(s ssh.Session) {
+			io.WriteString(s, "nx SSH tunneling active\n")
+			<-s.Context().Done()
+		},
+
+		PasswordHandler: func(ctx ssh.Context, pass string) bool {
+			if password == "" {
+				return true
+			}
+			return pass == password
+		},
+
+		LocalPortForwardingCallback: func(ctx ssh.Context, dhost string, dport uint32) bool {
+			logerr.Info("[SSH] Local forward: ->", fmt.Sprintf("%s:%d", dhost, dport))
+			return true
+		},
+
+		ReversePortForwardingCallback: func(ctx ssh.Context, bindHost string, bindPort uint32) bool {
+			logerr.Info("[SSH] Remote forward:", fmt.Sprintf("%s:%d <-", bindHost, bindPort))
+			return true
+		},
+
+		RequestHandlers: map[string]ssh.RequestHandler{
+			"tcpip-forward":        forwardHandler.HandleSSHRequest,
+			"cancel-tcpip-forward": forwardHandler.HandleSSHRequest,
+		},
+	}
+
+	// Simple host key generation
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate host key: %w", err)
+	}
+	signer, err := gossh.NewSignerFromKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create signer: %w", err)
+	}
+	server.AddHostKey(signer)
+
+	return server, nil
 }
 
 // handleShellListener handles shell connections from the cmux listener
@@ -330,9 +451,23 @@ func init() {
 		os.MkdirAll(pluginDir, 0o755)
 	}
 
+	// Handle plugin installation
+	if opts.InstallPlugins {
+		if err := installBundledPlugins(); err != nil {
+			logerr.Fatal("Failed to install plugins:", err)
+		}
+		os.Exit(0)
+	}
+
 	session, err = prepareTmux(opts.Target)
 	if err != nil {
 		logerr.Add("tmux").Fatal(err)
+	}
+
+	// Check if plugins directory is empty and suggest installation
+	pluginFiles, err := os.ReadDir(pluginDir)
+	if err == nil && len(pluginFiles) == 0 {
+		logerr.Warn("No plugins found. Run 'nx --install-plugins' to install bundled plugins.")
 	}
 
 	// Set up signal handling for graceful shutdown
