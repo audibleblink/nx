@@ -2,6 +2,11 @@
 
 [n]etcat + tmu[x] - listen on a port and forward the stream to a tmux session
 
+All-in-One:
+- reverse shell
+- http server
+- port-forwarding-only ssh server
+
 ## Prerequisites
 
 - tmux - required for session/window management
