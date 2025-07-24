@@ -99,7 +99,7 @@ whoami
 
 ## Protocol Multiplexing
 
-nx can serve files over HTTP and provide SSH tunneling on the same port as shell connections. This allows you to host files, create SSH tunnels, and catch shells on a single port.
+nx can serve files over HTTP, act as an HTTP proxy, and provide SSH tunneling on the same port as shell connections. This allows you to serve files, create SSH tunnels, provide internet to air-gapped machines, and catch shells over a single port.
 
 ### HTTP File Serving
 
