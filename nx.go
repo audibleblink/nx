@@ -318,7 +318,16 @@ func handleShellListener(listener net.Listener, connStr string) {
 
 			// set env var back home for convenience
 			time.Sleep(opts.Sleep)
-			_ = execInWindow(window, fmt.Sprintf(" export ME=%s", connStr))
+			_ = execInWindow(
+				window,
+				fmt.Sprintf(
+					" export ME=%s all_proxy=http://%s http_proxy=http://%s https_proxy=http://%s",
+					connStr,
+					connStr,
+					connStr,
+					connStr,
+				),
+			)
 
 			// Handle plugin execution
 			if opts.Auto {
