@@ -115,34 +115,32 @@ func main() {
 	logerr.Info("listening on:", connStr)
 
 	mux := cmux.New(listener)
-	mux.SetReadTimeout(2 * time.Second) // Set a read timeout to avoid hanging on protocol detection
+	mux.SetReadTimeout(1 * time.Second) // Set a read timeout to avoid hanging on protocol detection
 
 	// Create matchers for different protocols
-	httpL := mux.Match(cmux.HTTP1Fast())
 	sshL := mux.Match(cmux.PrefixMatcher("SSH-"))
+	// Match CONNECT requests (for HTTPS proxy)
+	proxyL := mux.Match(cmux.PrefixMatcher("CONNECT "))
+	httpL := mux.Match(cmux.HTTP1Fast())
 	shellL := mux.Match(cmux.Any())
 
-	if opts.ServeDir != "" {
-		httpServer := setupHTTPServer(opts.ServeDir)
-		go func() {
-			logerr.Info("HTTP server starting")
-			if err := httpServer.Serve(httpL); err != nil {
-				logerr.Error("HTTP server error:", err)
-			}
-		}()
-	} else {
-		go func() {
-			for {
-				conn, err := httpL.Accept()
-				if err != nil {
-					logerr.Error("HTTP listener error:", err)
-					continue
-				}
-				logerr.Warn("HTTP request received but no serve directory specified")
-				conn.Close()
-			}
-		}()
-	}
+	// Setup combined HTTP server (file serving + proxy detection)
+	httpServer := setupCombinedHTTPServer(opts.ServeDir)
+	go func() {
+		logerr.Info("HTTP server starting")
+		if err := httpServer.Serve(httpL); err != nil {
+			logerr.Error("HTTP server error:", err)
+		}
+	}()
+
+	// Setup HTTP Proxy server
+	proxyServer := setupHTTPProxyServer()
+	go func() {
+		logerr.Info("HTTP Proxy server starting")
+		if err := proxyServer.Serve(proxyL); err != nil {
+			logerr.Error("HTTP Proxy server error:", err)
+		}
+	}()
 
 	// Setup SSH tunneling server
 	if sshServer, err := setupSSHServer(opts.SSHPass); err == nil {
@@ -178,6 +176,42 @@ func setupHTTPServer(serveDir string) *http.Server {
 		Handler: handler,
 		// ReadTimeout:  10 * time.Second,
 		// WriteTimeout: 10 * time.Second,
+		// IdleTimeout:  60 * time.Second,
+	}
+}
+
+// setupCombinedHTTPServer creates a server that handles both file serving and HTTP proxy requests
+func setupCombinedHTTPServer(serveDir string) *http.Server {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if this is an HTTP proxy request (absolute URL)
+		if r.URL.IsAbs() {
+			logerr.Info("HTTP proxy request:", r.Method, r.URL.String())
+			handleHTTPProxy(w, r)
+			return
+		}
+
+		// Check for proxy-related headers
+		if r.Header.Get("Proxy-Connection") != "" || r.Header.Get("Proxy-Authorization") != "" {
+			logerr.Info("HTTP proxy request (headers):", r.Method, r.URL.String())
+			handleHTTPProxy(w, r)
+			return
+		}
+
+		// Regular HTTP request - handle file serving or return error
+		if serveDir != "" {
+			logerr.Info("HTTP file request:", r.Method, r.URL.Path)
+			fileServer := http.FileServer(http.Dir(serveDir))
+			fileServer.ServeHTTP(w, r)
+		} else {
+			logerr.Warn("HTTP request received but no serve directory specified")
+			http.Error(w, "File serving not enabled", http.StatusServiceUnavailable)
+		}
+	})
+
+	return &http.Server{
+		Handler: handler,
+		// ReadTimeout:  30 * time.Second,
+		// WriteTimeout: 30 * time.Second,
 		// IdleTimeout:  60 * time.Second,
 	}
 }
@@ -299,6 +333,121 @@ func handleShellListener(listener net.Listener, connStr string) {
 			}
 		}(conn)
 	}
+}
+
+// setupHTTPProxyServer creates and configures the HTTP proxy server
+func setupHTTPProxyServer() *http.Server {
+	handler := http.HandlerFunc(handleHTTPProxyRequest)
+	return &http.Server{
+		Handler: handler,
+		// ReadTimeout:  30 * time.Second,
+		// WriteTimeout: 30 * time.Second,
+		// IdleTimeout:  60 * time.Second,
+	}
+}
+
+// handleHTTPProxyRequest handles both HTTP and HTTPS proxy requests
+func handleHTTPProxyRequest(w http.ResponseWriter, r *http.Request) {
+	logerr.Info("Proxy request:", r.Method, r.URL.String())
+
+	if r.Method == "CONNECT" {
+		handleHTTPSProxy(w, r)
+	} else {
+		handleHTTPProxy(w, r)
+	}
+}
+
+// handleHTTPSProxy handles HTTPS proxy requests using CONNECT method
+func handleHTTPSProxy(w http.ResponseWriter, r *http.Request) {
+	// Extract target host and port from the request
+	targetConn, err := net.Dial("tcp", r.Host)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer targetConn.Close()
+
+	// Send 200 Connection Established response
+	w.WriteHeader(http.StatusOK)
+
+	// Hijack the connection to get raw TCP access
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
+		return
+	}
+
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer clientConn.Close()
+
+	// Start bidirectional copying
+	go func() {
+		defer targetConn.Close()
+		defer clientConn.Close()
+		io.Copy(targetConn, clientConn)
+	}()
+
+	io.Copy(clientConn, targetConn)
+}
+
+// handleHTTPProxy handles regular HTTP proxy requests
+func handleHTTPProxy(w http.ResponseWriter, r *http.Request) {
+	// For HTTP proxy, the URL should be absolute
+	if !r.URL.IsAbs() {
+		http.Error(w, "Request URL must be absolute for proxy", http.StatusBadRequest)
+		return
+	}
+
+	// Create a new request to the target server
+	proxyReq, err := http.NewRequest(r.Method, r.URL.String(), r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Copy headers, but remove hop-by-hop headers
+	for name, values := range r.Header {
+		// Skip hop-by-hop headers
+		if name == "Connection" || name == "Proxy-Connection" ||
+			name == "Proxy-Authenticate" || name == "Proxy-Authorization" ||
+			name == "Te" || name == "Trailers" || name == "Upgrade" {
+			continue
+		}
+		for _, value := range values {
+			proxyReq.Header.Add(name, value)
+		}
+	}
+
+	// Send the request to the target server
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Don't follow redirects, let the client handle them
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers
+	for name, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(name, value)
+		}
+	}
+
+	// Copy status code and body
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 // handleTCPUnix handles the connection between the network and the unix domain socket
