@@ -1,28 +1,22 @@
 package main
 
 import (
-	"bufio"
-	"crypto/rand"
-	"crypto/rsa"
+	"context"
 	"embed"
-	"fmt"
-	"io"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
-	"path"
-	"path/filepath"
 	"strings"
-	"time"
+	"syscall"
 
-	"github.com/adrg/xdg"
 	"github.com/audibleblink/logerr"
-	"github.com/disneystreaming/gomux"
-	"github.com/gliderlabs/ssh"
 	"github.com/jessevdk/go-flags"
-	"github.com/soheilhy/cmux"
-	gossh "golang.org/x/crypto/ssh"
+
+	"github.com/audibleblink/nx/internal/config"
+	"github.com/audibleblink/nx/internal/mux"
+	"github.com/audibleblink/nx/internal/plugins"
+	"github.com/audibleblink/nx/internal/protocols"
+	"github.com/audibleblink/nx/internal/tmux"
+	"github.com/audibleblink/nx/pkg/socket"
 )
 
 // Embed the plugins directory
@@ -30,621 +24,107 @@ import (
 //go:embed plugins/*
 var bundledPlugins embed.FS
 
-var (
-	socketDir = filepath.Join(xdg.RuntimeDir, "nx")
-	pluginDir = filepath.Join(xdg.ConfigHome, "nx", "plugins")
-	session   *gomux.Session
-	opts      struct {
-		Auto           bool          `long:"auto" description:"Attempt to auto-upgrade to a tty (uses --exec auto)"`
-		Exec           string        `long:"exec" description:"Execute plugin script on connection"`
-		InstallPlugins bool          `long:"install-plugins" description:"Install bundled plugins to config directory"`
-		Iface          string        `short:"i" long:"host" description:"Interface address on which to bind" default:"0.0.0.0" required:"true"`
-		Port           string        `short:"p" long:"port" description:"Port on which to bind" default:"8443" required:"true"`
-		ServeDir       string        `short:"d" long:"serve-dir" description:"Directory to serve files from over HTTP"`
-		Target         string        `short:"t" long:"target" description:"Tmux session name" default:"nx"`
-		Sleep          time.Duration `long:"sleep" description:"adjust if --auto is failing" default:"500ms"`
-		Verbose        bool          `short:"v" long:"verbose" description:"Debug logging"`
-		SSHPass        string        `short:"s" long:"ssh-pass" description:"SSH password (empty = no auth)"`
-	}
-)
-
-// installBundledPlugins copies bundled plugins from the embedded filesystem to the user's config directory
-func installBundledPlugins() error {
-	log := logerr.Add("installBundledPlugins")
-
-	entries, err := bundledPlugins.ReadDir("plugins")
-	if err != nil {
-		return fmt.Errorf("failed to read bundled plugins: %w", err)
-	}
-
-	installedCount := 0
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		content, err := bundledPlugins.ReadFile(filepath.Join("plugins", entry.Name()))
-		if err != nil {
-			log.Warn("Failed to read plugin:", entry.Name(), err)
-			continue
-		}
-
-		destPath := filepath.Join(pluginDir, entry.Name())
-
-		// Check if plugin already exists
-		if _, err := os.Stat(destPath); err == nil {
-			log.Info("Plugin already exists, skipping:", entry.Name())
-			continue
-		}
-
-		// Write plugin file
-		err = os.WriteFile(destPath, content, 0755)
-		if err != nil {
-			log.Warn("Failed to install plugin:", entry.Name(), err)
-			continue
-		}
-
-		log.Info("Installed plugin:", entry.Name())
-		installedCount++
-	}
-
-	if installedCount == 0 {
-		log.Info("No new plugins to install")
-	} else {
-		log.Info("Successfully installed", installedCount, "plugin(s) to:", pluginDir)
-	}
-
-	return nil
+func init() {
+	// Set up logging
+	logerr.SetContextSeparator(" ❯ ")
+	logerr.SetLogLevel(logerr.LogLevelInfo)
+	logerr.EnableColors()
+	logerr.EnableTimestamps()
+	logerr.SetContext("nx")
 }
 
 func main() {
-	// Validate serve directory if provided
-	if opts.ServeDir != "" {
-		if _, err := os.Stat(opts.ServeDir); os.IsNotExist(err) {
-			logerr.Fatal("Serve directory does not exist:", opts.ServeDir)
+	// Parse command line arguments
+	var cfg config.Config
+	parser := flags.NewParser(&cfg, flags.Default)
+	if _, err := parser.Parse(); err != nil {
+		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
+			os.Exit(0)
 		}
-		logerr.Info("File serving enabled from:", opts.ServeDir)
+		logerr.Fatal("Failed to parse arguments:", err)
 	}
 
-	// create listener
-	connStr := fmt.Sprintf("%s:%s", opts.Iface, opts.Port)
-	listener, err := net.Listen("tcp", connStr)
-	if err != nil {
-		logerr.Fatal("listener:", err)
-	}
-	logerr.Info("listening on:", connStr)
-
-	mux := cmux.New(listener)
-	mux.SetReadTimeout(1 * time.Second) // Set a read timeout to avoid hanging on protocol detection
-
-	// Create matchers for different protocols
-	sshL := mux.Match(cmux.PrefixMatcher("SSH-"))
-	// Match CONNECT requests (for HTTPS proxy)
-	proxyL := mux.Match(cmux.PrefixMatcher("CONNECT "))
-	httpL := mux.Match(cmux.HTTP1Fast())
-	shellL := mux.Match(cmux.Any())
-
-	// Setup combined HTTP server (file serving + proxy detection)
-	httpServer := setupCombinedHTTPServer(opts.ServeDir)
-	go func() {
-		logerr.Info("HTTP server starting")
-		if err := httpServer.Serve(httpL); err != nil {
-			logerr.Error("HTTP server error:", err)
-		}
-	}()
-
-	// Setup HTTP Proxy server
-	proxyServer := setupHTTPProxyServer()
-	go func() {
-		logerr.Info("HTTP Proxy server starting")
-		if err := proxyServer.Serve(proxyL); err != nil {
-			logerr.Error("HTTP Proxy server error:", err)
-		}
-	}()
-
-	// Setup SSH tunneling server
-	if sshServer, err := setupSSHServer(opts.SSHPass); err == nil {
-		go func() {
-			logerr.Info("[SSH] Tunneling enabled (pass:", opts.SSHPass != "")
-			if err := sshServer.Serve(sshL); err != nil {
-				logerr.Error("SSH server error:", err)
-			}
-		}()
-	} else {
-		logerr.Error("Failed to setup SSH server:", err)
+	if err := cfg.Validate(); err != nil {
+		logerr.Fatal("Invalid configuration:", err)
 	}
 
-	go handleShellListener(shellL, connStr)
-
-	logerr.Info("Starting connection multiplexer")
-	if err := mux.Serve(); err != nil {
-		logerr.Fatal("mux serve:", err)
-	}
-}
-
-// setupHTTPServer creates and configures the HTTP server
-func setupHTTPServer(serveDir string) *http.Server {
-	fileServer := http.FileServer(http.Dir(serveDir))
-
-	// Add logging middleware
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logerr.Info("HTTP request:", r.Method, r.URL.Path)
-		fileServer.ServeHTTP(w, r)
-	})
-
-	return &http.Server{
-		Handler: handler,
-		// ReadTimeout:  10 * time.Second,
-		// WriteTimeout: 10 * time.Second,
-		// IdleTimeout:  60 * time.Second,
-	}
-}
-
-// setupCombinedHTTPServer creates a server that handles both file serving and HTTP proxy requests
-func setupCombinedHTTPServer(serveDir string) *http.Server {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if this is an HTTP proxy request (absolute URL)
-		if r.URL.IsAbs() {
-			logerr.Info("HTTP proxy request:", r.Method, r.URL.String())
-			handleHTTPProxy(w, r)
-			return
-		}
-
-		// Check for proxy-related headers
-		if r.Header.Get("Proxy-Connection") != "" || r.Header.Get("Proxy-Authorization") != "" {
-			logerr.Info("HTTP proxy request (headers):", r.Method, r.URL.String())
-			handleHTTPProxy(w, r)
-			return
-		}
-
-		// Regular HTTP request - handle file serving or return error
-		if serveDir != "" {
-			logerr.Info("HTTP file request:", r.Method, r.URL.Path)
-			fileServer := http.FileServer(http.Dir(serveDir))
-			fileServer.ServeHTTP(w, r)
-		} else {
-			logerr.Warn("HTTP request received but no serve directory specified")
-			http.Error(w, "File serving not enabled", http.StatusServiceUnavailable)
-		}
-	})
-
-	return &http.Server{
-		Handler: handler,
-		// ReadTimeout:  30 * time.Second,
-		// WriteTimeout: 30 * time.Second,
-		// IdleTimeout:  60 * time.Second,
-	}
-}
-
-// setupSSHServer creates and configures the SSH server for tunneling
-func setupSSHServer(password string) (*ssh.Server, error) {
-	forwardHandler := &ssh.ForwardedTCPHandler{}
-
-	server := &ssh.Server{
-		Handler: func(s ssh.Session) {
-			io.WriteString(s, "nx SSH tunneling active\n")
-			<-s.Context().Done()
-		},
-
-		PasswordHandler: func(ctx ssh.Context, pass string) bool {
-			if password == "" {
-				return true
-			}
-			return pass == password
-		},
-
-		LocalPortForwardingCallback: func(ctx ssh.Context, dhost string, dport uint32) bool {
-			logerr.Info("[SSH] Local forward: ->", fmt.Sprintf("%s:%d", dhost, dport))
-			return true
-		},
-
-		ReversePortForwardingCallback: func(ctx ssh.Context, bindHost string, bindPort uint32) bool {
-			logerr.Info("[SSH] Remote forward:", fmt.Sprintf("%s:%d <-", bindHost, bindPort))
-			return true
-		},
-
-		RequestHandlers: map[string]ssh.RequestHandler{
-			"tcpip-forward":        forwardHandler.HandleSSHRequest,
-			"cancel-tcpip-forward": forwardHandler.HandleSSHRequest,
-		},
-	}
-
-	// Simple host key generation
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate host key: %w", err)
-	}
-	signer, err := gossh.NewSignerFromKey(key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create signer: %w", err)
-	}
-	server.AddHostKey(signer)
-
-	return server, nil
-}
-
-// handleShellListener handles shell connections from the cmux listener
-func handleShellListener(listener net.Listener, connStr string) {
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			logerr.Error("shell listener accept:", err)
-			continue
-		}
-
-		logerr.Info("new shell connection:", conn.RemoteAddr().String())
-
-		// Handle shell connection (existing logic from main)
-		go func(conn net.Conn) {
-			// create the unix domain socket filename
-			sockF, err := genTempFilename()
-			if err != nil {
-				logerr.Error("gen filename:", err)
-				conn.Close()
-				return
-			}
-
-			// create the unix domain socket
-			sockH, err := net.Listen("unix", sockF)
-			if err != nil {
-				logerr.Error("socket create:", err)
-				conn.Close()
-				return
-			}
-			logerr.Debug("socket file created:", sockF)
-
-			// background: wait and listen for a connection to the domain socket
-			go handleTCPUnix(conn, sockH)
-
-			// create a tmux window for the reverse shell to run in
-			window, err := newTmuxWindow(session, sockF)
-			if err != nil {
-				logerr.Error("tmux window create:", err)
-				conn.Close()
-				return
-			}
-
-			// create the tmux command to run in the new window
-			// intentional space prefix to keep shell history clean
-			cmd := fmt.Sprintf(" socat -d -d stdio unix-connect:'%s'", sockF)
-			err = execInWindow(window, cmd)
-			if err != nil {
-				logerr.Error("tmux exec:", err)
-				conn.Close()
-				return
-			}
-
-			logerr.Info("new shell:", conn.RemoteAddr().String())
-
-			// set env var back home for convenience
-			time.Sleep(opts.Sleep)
-			_ = execInWindow(
-				window,
-				fmt.Sprintf(
-					" export ME=%s all_proxy=http://%s http_proxy=http://%s https_proxy=http://%s",
-					connStr,
-					connStr,
-					connStr,
-					connStr,
-				),
-			)
-
-			// Handle plugin execution
-			if opts.Auto {
-				opts.Exec = "auto" // backward compatibility
-			}
-
-			if opts.Exec != "" {
-				err := executePlugin(opts.Exec, window)
-				if err != nil {
-					logerr.Error("plugin execution:", err)
-				}
-			}
-		}(conn)
-	}
-}
-
-// setupHTTPProxyServer creates and configures the HTTP proxy server
-func setupHTTPProxyServer() *http.Server {
-	handler := http.HandlerFunc(handleHTTPProxyRequest)
-	return &http.Server{
-		Handler: handler,
-		// ReadTimeout:  30 * time.Second,
-		// WriteTimeout: 30 * time.Second,
-		// IdleTimeout:  60 * time.Second,
-	}
-}
-
-// handleHTTPProxyRequest handles both HTTP and HTTPS proxy requests
-func handleHTTPProxyRequest(w http.ResponseWriter, r *http.Request) {
-	logerr.Info("Proxy request:", r.Method, r.URL.String())
-
-	if r.Method == "CONNECT" {
-		handleHTTPSProxy(w, r)
-	} else {
-		handleHTTPProxy(w, r)
-	}
-}
-
-// handleHTTPSProxy handles HTTPS proxy requests using CONNECT method
-func handleHTTPSProxy(w http.ResponseWriter, r *http.Request) {
-	// Extract target host and port from the request
-	targetConn, err := net.Dial("tcp", r.Host)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	defer targetConn.Close()
-
-	// Send 200 Connection Established response
-	w.WriteHeader(http.StatusOK)
-
-	// Hijack the connection to get raw TCP access
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
-		return
-	}
-
-	clientConn, _, err := hijacker.Hijack()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer clientConn.Close()
-
-	// Start bidirectional copying
-	go func() {
-		defer targetConn.Close()
-		defer clientConn.Close()
-		io.Copy(targetConn, clientConn)
-	}()
-
-	io.Copy(clientConn, targetConn)
-}
-
-// handleHTTPProxy handles regular HTTP proxy requests
-func handleHTTPProxy(w http.ResponseWriter, r *http.Request) {
-	// For HTTP proxy, the URL should be absolute
-	if !r.URL.IsAbs() {
-		http.Error(w, "Request URL must be absolute for proxy", http.StatusBadRequest)
-		return
-	}
-
-	// Create a new request to the target server
-	proxyReq, err := http.NewRequest(r.Method, r.URL.String(), r.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Copy headers, but remove hop-by-hop headers
-	for name, values := range r.Header {
-		// Skip hop-by-hop headers
-		if name == "Connection" || name == "Proxy-Connection" ||
-			name == "Proxy-Authenticate" || name == "Proxy-Authorization" ||
-			name == "Te" || name == "Trailers" || name == "Upgrade" {
-			continue
-		}
-		for _, value := range values {
-			proxyReq.Header.Add(name, value)
-		}
-	}
-
-	// Send the request to the target server
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Don't follow redirects, let the client handle them
-			return http.ErrUseLastResponse
-		},
-	}
-
-	resp, err := client.Do(proxyReq)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Copy response headers
-	for name, values := range resp.Header {
-		for _, value := range values {
-			w.Header().Add(name, value)
-		}
-	}
-
-	// Copy status code and body
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
-}
-
-// handleTCPUnix handles the connection between the network and the unix domain socket
-func handleTCPUnix(httpConn net.Conn, domainSocket net.Listener) error {
-	log := logerr.Add("handleTCPUnix")
-	defer domainSocket.Close()
-	netC, sockC := make(chan error), make(chan error)
-
-	socketConn, err := domainSocket.Accept()
-	if err != nil {
-		log.Warn("socket connection:", err)
-		return err
-	}
-	defer socketConn.Close()
-
-	// stdio from network
-	go func() {
-		_, err := io.Copy(socketConn, httpConn)
-		netC <- err
-	}()
-
-	// stdio from us/socat
-	go func() {
-		_, err := io.Copy(httpConn, socketConn)
-		sockC <- err
-	}()
-
-	// Wait for either goroutine to finish and return any error
-	select {
-	case err = <-netC:
-		log.Warn("shell died:", err)
-	case err = <-sockC:
-		log.Warn("tmux died:", err)
-	}
-	return err
-}
-
-// create tempfile name. socket file can't exists when we start
-// the listener, so we delete it immediately
-// i'm using it for the convenience of getting abs paths
-func genTempFilename() (string, error) {
-	file, err := os.CreateTemp(socketDir, "*.sock")
-	if err != nil {
-		return "", err
-	}
-	file.Close()
-	os.Remove(file.Name())
-	return file.Name(), err
-}
-
-// Handles tmux session existance
-func prepareTmux(tmSessName string) (tmux *gomux.Session, err error) {
-	log := logerr.Add("prepareTmux")
-	exists, err := gomux.CheckSessionExists(tmSessName)
-	if err != nil {
-		return
-	}
-
-	if !exists {
-		log.Debug("creating new tmux session")
-		return gomux.NewSession(tmSessName)
-	}
-
-	// session is in tmux, but not tracked with server yet
-	log.Debug("existing tmux session:", opts.Target)
-	tmux = &gomux.Session{Name: tmSessName}
-	return
-}
-
-// newTmuxWindow creates a new tmux window based on the socket file
-func newTmuxWindow(session *gomux.Session, socketFile string) (window *gomux.Window, err error) {
-	tmWindowName := path.Base(socketFile)
-	id := fmt.Sprintf("%s.%d", tmWindowName, session.NextWindowNumber)
-	return session.AddWindow(id)
-}
-
-// execInWindow executes a command in the tmux window
-func execInWindow(window *gomux.Window, cmd string) error {
-	logerr.Debug("tmux command:", cmd)
-	return window.Panes[0].Exec(cmd) // new windows always have a 0-index pane
-}
-
-// executePlugin executes commands from a plugin script
-func executePlugin(pluginName string, window *gomux.Window) error {
-	log := logerr.Add("executePlugin")
-
-	pluginPath := filepath.Join(pluginDir, pluginName+".sh")
-	if _, err := os.Stat(pluginPath); os.IsNotExist(err) {
-		return fmt.Errorf("plugin not found: %s", pluginPath)
-	}
-
-	file, err := os.Open(pluginPath)
-	if err != nil {
-		return fmt.Errorf("failed to open plugin: %w", err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		log.Debug("executing plugin command:", line)
-		err := execInWindow(window, line)
-		if err != nil {
-			log.Warn("plugin command failed:", err)
-		}
-
-		// Default sleep between commands
-		time.Sleep(opts.Sleep)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading plugin: %w", err)
-	}
-
-	log.Info("Plugin executed:", pluginName)
-	return nil
-}
-
-func init() {
-	var err error
-	if _, err := flags.Parse(&opts); err != nil {
-		logerr.Fatal(err)
-	}
-
-	logerr.DefaultLogger().
-		EnableTimestamps().
-		EnableColors().
-		SetContextSeparator(" ❯ ").
-		SetContext("nx").
-		SetLogLevel(logerr.LogLevelInfo).
-		SetAsGlobal()
-
-	if opts.Verbose {
+	if cfg.Verbose {
 		logerr.SetLogLevel(logerr.LogLevelDebug)
 	}
 
-	// Ensure socket folder exists
-	if _, err := os.Stat(socketDir); os.IsNotExist(err) {
-		os.Mkdir(socketDir, 0o700)
+	if cfg.ServeDir != "" {
+		if _, err := os.Stat(cfg.ServeDir); os.IsNotExist(err) {
+			logerr.Fatal("Serve directory does not exist:", cfg.ServeDir)
+		}
+		logerr.Debug("File serving enabled from:", cfg.ServeDir)
 	}
 
-	// Ensure plugin folder exists
-	if _, err := os.Stat(pluginDir); os.IsNotExist(err) {
-		os.MkdirAll(pluginDir, 0o755)
+	// Initialize components
+	socketManager := socket.NewManager()
+
+	tmuxManager, err := tmux.NewManager(cfg.Target)
+	if err != nil {
+		logerr.Fatal("Failed to initialize tmux manager:", err)
 	}
 
-	// Handle plugin installation
-	if opts.InstallPlugins {
-		if err := installBundledPlugins(); err != nil {
+	pluginManager := plugins.NewManager(bundledPlugins, cfg.Sleep, tmuxManager)
+
+	// Install bundled plugins if requested
+	if cfg.InstallPlugins {
+		if err := pluginManager.InstallBundledPlugins(); err != nil {
 			logerr.Fatal("Failed to install plugins:", err)
 		}
-		os.Exit(0)
+		logerr.Info("Plugins installed successfully")
+		return
 	}
 
-	session, err = prepareTmux(opts.Target)
+	// Create protocol handlers
+	httpHandler := protocols.NewHTTPHandler(cfg.ServeDir)
+
+	var sshHandler *protocols.SSHHandler
+	if cfg.IsSSHEnabled() {
+		sshHandler, err = protocols.NewSSHHandler(cfg.SSHPass)
+		if err != nil {
+			logerr.Fatal("Failed to create SSH handler:", err)
+		}
+	}
+
+	shellHandler := protocols.NewShellHandler(
+		&cfg,
+		tmuxManager,
+		socketManager,
+		pluginManager,
+		cfg.Address(),
+	)
+
+	// Create multiplexer server
+	server, err := mux.NewServer(&cfg, httpHandler, sshHandler, shellHandler)
 	if err != nil {
-		logerr.Add("tmux").Fatal(err)
+		logerr.Fatal("Failed to create server:", err)
 	}
 
-	// Check if plugins directory is empty and suggest installation
-	pluginFiles, err := os.ReadDir(pluginDir)
-	if err == nil && len(pluginFiles) == 0 {
-		logerr.Warn("No plugins found. Run 'nx --install-plugins' to install bundled plugins.")
-	}
+	// Set up graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Set up signal handling for graceful shutdown
+	// Handle signals for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Start cleanup goroutine
 	go func() {
-		sig := <-sigChan
-		logerr.Info("Received interrupt signal:", sig)
-		cleanup()
-		os.Exit(0)
+		<-sigChan
+		logerr.Info("Received shutdown signal, cleaning up...")
+		cancel()
+		server.Stop()
+		socketManager.Cleanup()
 	}()
-}
 
-// cleanup removes any socket files and performs other cleanup tasks
-func cleanup() {
-	err := os.RemoveAll(socketDir)
-	if err != nil {
-		logerr.Error("unable to delete:", err)
+	// Start the server
+	if err := server.Start(ctx); err != nil {
+		// Check if this is a normal shutdown error
+		if !strings.Contains(err.Error(), "use of closed network connection") {
+			logerr.Fatal("Server error:", err)
+		}
+		// Otherwise, this is a normal shutdown - no need to log as fatal
 	}
 }
