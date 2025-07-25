@@ -170,7 +170,8 @@ func TestManagerExecute(t *testing.T) {
 		mockWindow := &gomux.Window{}
 
 		// Set up expectation for command that will fail
-		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Hello from test plugin\"").Return(assert.AnError)
+		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Hello from test plugin\"").
+			Return(assert.AnError)
 		mockTmux.On("ExecuteInWindow", mockWindow, "ls -la").Return(nil)
 		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Plugin execution complete\"").Return(nil)
 
@@ -301,9 +302,11 @@ func TestPluginExecutionTiming(t *testing.T) {
 
 	// Track timing of calls
 	var callTimes []time.Time
-	mockTmux.On("ExecuteInWindow", mockWindow, mock.AnythingOfType("string")).Run(func(args mock.Arguments) {
-		callTimes = append(callTimes, time.Now())
-	}).Return(nil)
+	mockTmux.On("ExecuteInWindow", mockWindow, mock.AnythingOfType("string")).
+		Run(func(args mock.Arguments) {
+			callTimes = append(callTimes, time.Now())
+		}).
+		Return(nil)
 
 	start := time.Now()
 	err = manager.Execute("test_plugin", mockWindow)
@@ -355,7 +358,7 @@ func TestConcurrentPluginOperations(t *testing.T) {
 	results := make(chan error, numGoroutines)
 
 	// Run multiple plugin operations concurrently
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			plugins, err := manager.ListPlugins()
 			if err != nil {
@@ -379,7 +382,7 @@ func TestConcurrentPluginOperations(t *testing.T) {
 	}
 
 	// Wait for all operations to complete
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		select {
 		case err := <-results:
 			assert.NoError(t, err)
