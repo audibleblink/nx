@@ -17,7 +17,7 @@ import (
 
 // ShellHandler handles shell connections
 type ShellHandler struct {
-	config        *config.Config
+	config        config.ShellConfig
 	tmuxManager   *tmux.Manager
 	socketManager *socket.Manager
 	pluginManager *plugins.Manager
@@ -27,7 +27,7 @@ type ShellHandler struct {
 
 // NewShellHandler creates a new shell handler
 func NewShellHandler(
-	cfg *config.Config,
+	cfg config.ShellConfig,
 	tmuxMgr *tmux.Manager,
 	socketMgr *socket.Manager,
 	pluginMgr *plugins.Manager,
@@ -140,19 +140,20 @@ func (h *ShellHandler) handleShellConnection(conn net.Conn) error {
 		return fmt.Errorf("failed to execute socat command: %w", err)
 	}
 
-	h.log.Info("new shell:", conn.RemoteAddr().String())
+	tmuxLoc := fmt.Sprintf("%s:%d.0", h.tmuxManager.GetSessionName(), window.Number)
+	h.log.Infof("new shell on %s: %s", tmuxLoc, conn.RemoteAddr().String())
 
 	// Set environment variables for convenience
-	time.Sleep(h.config.Sleep)
+	time.Sleep(h.config.GetSleep())
 	envCmd := fmt.Sprintf(
-		" export ME=%s all_proxy=http://%s http_proxy=http://%s https_proxy=http://%s",
+		" export ME=%s all_proxy=http://%s http_proxy=http://%s https_proxy=http://%s ; clear",
 		h.connStr, h.connStr, h.connStr, h.connStr,
 	)
 	_ = h.tmuxManager.ExecuteInWindow(window, envCmd)
 
 	// Handle plugin execution
-	execPlugin := h.config.Exec
-	if h.config.Auto {
+	execPlugin := h.config.GetExec()
+	if h.config.GetAuto() {
 		execPlugin = "auto" // backward compatibility
 	}
 

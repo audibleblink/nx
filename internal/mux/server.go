@@ -23,7 +23,7 @@ type ProtocolHandler interface {
 
 // Server manages connection multiplexing
 type Server struct {
-	config       *config.Config
+	config       config.ServerConfig
 	listener     net.Listener
 	mux          cmux.CMux
 	httpHandler  *protocols.HTTPHandler
@@ -34,7 +34,7 @@ type Server struct {
 
 // NewServer creates a new multiplexer server
 func NewServer(
-	cfg *config.Config,
+	cfg config.ServerConfig,
 	httpHandler *protocols.HTTPHandler,
 	sshHandler *protocols.SSHHandler,
 	shellHandler *protocols.ShellHandler,
@@ -85,7 +85,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Start SSH server if enabled
 	if s.config.IsSSHEnabled() && s.sshHandler != nil {
 		go func() {
-			s.log.Debug("SSH Tunneling enabled. pass:", s.config.SSHPass != "")
+			s.log.Debug("SSH Tunneling enabled. pass:", s.config.GetSSHPass() != "")
 			for {
 				conn, err := sshL.Accept()
 				if err != nil {

@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"os/exec"
 	"path"
 	"testing"
 
@@ -307,4 +308,165 @@ func BenchmarkWindowCreation(t *testing.B) {
 		windowName := path.Base(socketFile)
 		_ = windowName + ".1" // Simulate window ID generation
 	}
+}
+
+// Tests for pane targeting functionality
+
+func TestParseTarget(t *testing.T) {
+	manager := &Manager{log: logerr.Add("test")}
+
+	tests := []struct {
+		name     string
+		target   string
+		expected *PaneTarget
+		hasError bool
+	}{
+		{
+			name:   "valid target",
+			target: "nx:0.1",
+			expected: &PaneTarget{
+				Session: "nx",
+				Window:  0,
+				Pane:    1,
+			},
+			hasError: false,
+		},
+		{
+			name:   "valid target with different session",
+			target: "myapp:2.3",
+			expected: &PaneTarget{
+				Session: "myapp",
+				Window:  2,
+				Pane:    3,
+			},
+			hasError: false,
+		},
+		{
+			name:     "invalid format - missing colon",
+			target:   "nx0.1",
+			expected: nil,
+			hasError: true,
+		},
+		{
+			name:     "invalid format - missing dot",
+			target:   "nx:01",
+			expected: nil,
+			hasError: true,
+		},
+		{
+			name:     "invalid window number",
+			target:   "nx:abc.1",
+			expected: nil,
+			hasError: true,
+		},
+		{
+			name:     "invalid pane number",
+			target:   "nx:0.abc",
+			expected: nil,
+			hasError: true,
+		},
+		{
+			name:     "empty target",
+			target:   "",
+			expected: nil,
+			hasError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := manager.ParseTarget(tt.target)
+
+			if tt.hasError {
+				assert.Error(t, err)
+				assert.Nil(t, result)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, result)
+				assert.Equal(t, tt.expected.Session, result.Session)
+				assert.Equal(t, tt.expected.Window, result.Window)
+				assert.Equal(t, tt.expected.Pane, result.Pane)
+			}
+		})
+	}
+}
+
+func TestListPanes(t *testing.T) {
+	// This test requires tmux to be running, so we'll skip it if tmux is not available
+	if !isTmuxAvailable() {
+		t.Skip("tmux not available, skipping ListPanes test")
+	}
+
+	manager := &Manager{log: logerr.Add("test")}
+
+	panes, err := manager.ListPanes()
+
+	// We can't predict the exact panes, but we can test the structure
+	assert.NoError(t, err)
+	assert.NotNil(t, panes)
+
+	// If there are panes, validate their structure
+	for _, pane := range panes {
+		assert.NotEmpty(t, pane.Target.Session)
+		assert.GreaterOrEqual(t, pane.Target.Window, 0)
+		assert.GreaterOrEqual(t, pane.Target.Pane, 0)
+	}
+}
+
+func TestValidatePane(t *testing.T) {
+	// This test requires tmux to be running, so we'll skip it if tmux is not available
+	if !isTmuxAvailable() {
+		t.Skip("tmux not available, skipping ValidatePane test")
+	}
+
+	manager := &Manager{log: logerr.Add("test")}
+
+	// Test with an invalid pane - use a very unlikely session name
+	invalidTarget := &PaneTarget{
+		Session: "nonexistent-session-12345",
+		Window:  999,
+		Pane:    999,
+	}
+
+	err := manager.ValidatePane(invalidTarget)
+	// This should fail because the session doesn't exist
+	if err == nil {
+		t.Logf("Validation unexpectedly passed for target: %s:%d.%d",
+			invalidTarget.Session, invalidTarget.Window, invalidTarget.Pane)
+		// Let's check what panes actually exist
+		panes, listErr := manager.ListPanes()
+		if listErr == nil {
+			t.Logf("Available panes:")
+			for _, pane := range panes {
+				t.Logf("  %s:%d.%d", pane.Target.Session, pane.Target.Window, pane.Target.Pane)
+			}
+		}
+	}
+	assert.Error(t, err, "Expected error for nonexistent session")
+}
+
+func TestExecuteOnPane(t *testing.T) {
+	// This test requires tmux to be running, so we'll skip it if tmux is not available
+	if !isTmuxAvailable() {
+		t.Skip("tmux not available, skipping ExecuteOnPane test")
+	}
+
+	manager := &Manager{log: logerr.Add("test")}
+
+	// Test with an invalid pane
+	invalidTarget := &PaneTarget{
+		Session: "nonexistent",
+		Window:  999,
+		Pane:    999,
+	}
+
+	err := manager.ExecuteOnPane(invalidTarget, "echo test")
+	assert.Error(t, err)
+}
+
+// Helper function to check if tmux is available
+func isTmuxAvailable() bool {
+	cmd := exec.Command("tmux", "list-sessions")
+	err := cmd.Run()
+	return err == nil
 }

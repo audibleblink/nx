@@ -11,7 +11,8 @@ script -qc /bin/bash /dev/null
 # Background the process with Ctrl+Z
 C-z
 
-# Fix terminal settings for raw mode
+# Display current terminal's settings so they
+# can be fixed manually later
 stty size; stty raw -echo; fg
 
 # Set proper terminal type for colors
