@@ -8,6 +8,7 @@ import (
 )
 
 // Config holds all application configuration
+
 type Config struct {
 	Auto           bool          `long:"auto"            description:"Attempt to auto-upgrade to a tty (uses --exec auto)"`
 	Exec           string        `long:"exec"            description:"Execute plugin script on connection"`
@@ -55,11 +56,26 @@ func (c *Config) IsHTTPEnabled() bool {
 
 // IsSSHEnabled returns true if SSH server is enabled
 func (c *Config) IsSSHEnabled() bool {
-	// return c.SSHPass != ""
 	return true
 }
 
-// IsAutoUpgradeEnabled returns true if auto TTY upgrade is enabled
-func (c *Config) IsAutoUpgradeEnabled() bool {
-	return c.Auto
+
+
+// ServerCommand represents the configuration for the server subcommand (default behavior)
+
+// ExecCommand represents the configuration for the exec subcommand
+type ExecCommand struct {
+	Args struct {
+		Script string `positional-arg-name:"script" description:"Name of plugin script to execute"`
+	} `positional-args:"yes" required:"yes"`
+	On     string `                      required:"true" long:"on"      description:"Target pane using tmux notation (session:window.pane)"`
+	DryRun bool   `                                      long:"dry-run" description:"Preview execution without running"`
 }
+
+// Commands represents the available subcommands
+type Commands struct {
+	Server Config      `command:"server" description:"Start nx server (default)"`
+	Exec   ExecCommand `command:"exec"   description:"Execute script on existing panes"`
+}
+
+// ServerCommand methods to maintain compatibility with existing Config interface

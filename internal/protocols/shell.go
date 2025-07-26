@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/audibleblink/logerr"
 
+	"github.com/audibleblink/nx/internal/common"
 	"github.com/audibleblink/nx/internal/config"
 	"github.com/audibleblink/nx/internal/plugins"
 	"github.com/audibleblink/nx/internal/tmux"
@@ -44,11 +44,14 @@ func NewShellHandler(
 }
 
 // Match checks if the connection data matches shell protocol (fallback)
+// NOTE: This method is not used in production - cmux handles protocol detection
+// It exists only for backward compatibility with tests
 func (h *ShellHandler) Match(data []byte) bool {
 	// Accept everything else as shell input
 	return true
 }
 
+// Match checks if the connection data matches shell protocol (fallback)
 // Handle processes shell connections
 func (h *ShellHandler) Handle(conn net.Conn) error {
 	return h.handleShellConnection(conn)
@@ -56,39 +59,13 @@ func (h *ShellHandler) Handle(conn net.Conn) error {
 
 // HandleListener handles incoming shell connections on a listener
 func (h *ShellHandler) HandleListener(ctx context.Context, listener net.Listener) error {
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			// Check for context cancellation or shutdown
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			// Check if this is a shutdown-related error
-			if strings.Contains(err.Error(), "closed") ||
-				strings.Contains(err.Error(), "server closed") {
-				h.log.Info("Shell listener closed, shutting down")
-				return err
-			}
-
-			h.log.Error("shell listener accept:", err)
-			// Add a small delay for other errors to prevent tight loops
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
+	// Custom handler that includes debug logging
+	handler := func(conn net.Conn) error {
 		h.log.Debug("incoming:", conn.RemoteAddr().String())
-
-		// Handle connection in goroutine
-		go func(conn net.Conn) {
-			defer conn.Close()
-			if err := h.handleShellConnection(conn); err != nil {
-				h.log.Error("shell connection error:", err)
-			}
-		}(conn)
+		return h.handleShellConnection(conn)
 	}
+
+	return common.HandleListenerLoop(ctx, listener, handler, h.log, "Shell")
 }
 
 // handleShellConnection processes a single shell connection
@@ -140,12 +117,13 @@ func (h *ShellHandler) handleShellConnection(conn net.Conn) error {
 		return fmt.Errorf("failed to execute socat command: %w", err)
 	}
 
-	h.log.Info("new shell:", conn.RemoteAddr().String())
+	tmuxLoc := fmt.Sprintf("%s:%d.0", h.tmuxManager.GetSessionName(), window.Number)
+	h.log.Infof("new shell on %s: %s", tmuxLoc, conn.RemoteAddr().String())
 
 	// Set environment variables for convenience
 	time.Sleep(h.config.Sleep)
 	envCmd := fmt.Sprintf(
-		" export ME=%s all_proxy=http://%s http_proxy=http://%s https_proxy=http://%s",
+		" export ME=%s all_proxy=http://%s http_proxy=http://%s https_proxy=http://%s ; clear",
 		h.connStr, h.connStr, h.connStr, h.connStr,
 	)
 	_ = h.tmuxManager.ExecuteInWindow(window, envCmd)

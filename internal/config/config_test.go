@@ -264,7 +264,7 @@ func TestConfigIsAutoUpgradeEnabled(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.IsAutoUpgradeEnabled()
+			result := tt.config.Auto
 			assert.Equal(t, tt.expected, result)
 		})
 	}

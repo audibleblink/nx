@@ -72,7 +72,7 @@ func TestManagerInstallBundledPlugins(t *testing.T) {
 	defer os.RemoveAll(manager.GetPluginDir())
 
 	t.Run("installs bundled plugins successfully", func(t *testing.T) {
-		err := manager.InstallBundledPluginsFromPath("testdata")
+		err := manager.InstallBundledPlugins("testdata")
 		require.NoError(t, err)
 
 		// Check that plugins were installed
@@ -100,7 +100,7 @@ func TestManagerInstallBundledPlugins(t *testing.T) {
 
 	t.Run("skips existing plugins", func(t *testing.T) {
 		// Install plugins first time
-		err := manager.InstallBundledPluginsFromPath("testdata")
+		err := manager.InstallBundledPlugins("testdata")
 		require.NoError(t, err)
 
 		// Get modification time of a plugin
@@ -112,7 +112,7 @@ func TestManagerInstallBundledPlugins(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		// Install again - should skip existing
-		err = manager.InstallBundledPluginsFromPath("testdata")
+		err = manager.InstallBundledPlugins("testdata")
 		require.NoError(t, err)
 
 		// Check that file wasn't modified
@@ -128,7 +128,7 @@ func TestManagerExecute(t *testing.T) {
 	defer os.RemoveAll(manager.GetPluginDir())
 
 	// Install plugins first
-	err := manager.InstallBundledPluginsFromPath("testdata")
+	err := manager.InstallBundledPlugins("testdata")
 	require.NoError(t, err)
 
 	t.Run("executes plugin successfully", func(t *testing.T) {
@@ -190,7 +190,7 @@ func TestManagerListPlugins(t *testing.T) {
 
 	t.Run("lists installed plugins", func(t *testing.T) {
 		// Install plugins first
-		err := manager.InstallBundledPluginsFromPath("testdata")
+		err := manager.InstallBundledPlugins("testdata")
 		require.NoError(t, err)
 
 		plugins, err := manager.ListPlugins()
@@ -226,7 +226,7 @@ func TestManagerListPlugins(t *testing.T) {
 		defer os.RemoveAll(testManager.GetPluginDir())
 
 		// Install plugins first
-		err := testManager.InstallBundledPluginsFromPath("testdata")
+		err := testManager.InstallBundledPlugins("testdata")
 		require.NoError(t, err)
 
 		// Create a non-shell file
@@ -257,7 +257,7 @@ func TestManagerPluginExists(t *testing.T) {
 	defer os.RemoveAll(manager.GetPluginDir())
 
 	// Install plugins first
-	err := manager.InstallBundledPluginsFromPath("testdata")
+	err := manager.InstallBundledPlugins("testdata")
 	require.NoError(t, err)
 
 	t.Run("returns true for existing plugin", func(t *testing.T) {
@@ -295,7 +295,7 @@ func TestPluginExecutionTiming(t *testing.T) {
 	defer os.RemoveAll(manager.GetPluginDir())
 
 	// Install plugins
-	err := manager.InstallBundledPluginsFromPath("testdata")
+	err := manager.InstallBundledPlugins("testdata")
 	require.NoError(t, err)
 
 	mockWindow := &gomux.Window{}
@@ -333,7 +333,7 @@ func TestPluginFilePermissions(t *testing.T) {
 	manager := NewManager(testPlugins, 100*time.Millisecond, mockTmux)
 	defer os.RemoveAll(manager.GetPluginDir())
 
-	err := manager.InstallBundledPluginsFromPath("testdata")
+	err := manager.InstallBundledPlugins("testdata")
 	require.NoError(t, err)
 
 	pluginPath := filepath.Join(manager.GetPluginDir(), "test_plugin.sh")
@@ -351,7 +351,7 @@ func TestConcurrentPluginOperations(t *testing.T) {
 	defer os.RemoveAll(manager.GetPluginDir())
 
 	// Install plugins first
-	err := manager.InstallBundledPluginsFromPath("testdata")
+	err := manager.InstallBundledPlugins("testdata")
 	require.NoError(t, err)
 
 	const numGoroutines = 5

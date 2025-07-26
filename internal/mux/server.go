@@ -5,21 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/audibleblink/logerr"
 	"github.com/soheilhy/cmux"
 
+	"github.com/audibleblink/nx/internal/common"
 	"github.com/audibleblink/nx/internal/config"
 	"github.com/audibleblink/nx/internal/protocols"
 )
-
-// ProtocolHandler defines the interface for protocol handlers
-type ProtocolHandler interface {
-	Match(data []byte) bool
-	Handle(conn net.Conn) error
-}
 
 // Server manages connection multiplexing
 type Server struct {
@@ -86,36 +80,8 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.config.IsSSHEnabled() && s.sshHandler != nil {
 		go func() {
 			s.log.Debug("SSH Tunneling enabled. pass:", s.config.SSHPass != "")
-			for {
-				conn, err := sshL.Accept()
-				if err != nil {
-					// Check for context cancellation or shutdown
-					select {
-					case <-ctx.Done():
-						s.log.Info("SSH server shutting down")
-						return
-					default:
-					}
-
-					// Check if this is a shutdown-related error
-					if strings.Contains(err.Error(), "closed") ||
-						strings.Contains(err.Error(), "server closed") {
-						s.log.Info("SSH listener closed, shutting down")
-						return
-					}
-
-					s.log.Error("SSH listener accept:", err)
-					// Add a small delay for other errors to prevent tight loops
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
-
-				go func(conn net.Conn) {
-					defer conn.Close()
-					if err := s.sshHandler.Handle(conn); err != nil {
-						s.log.Error("SSH handler error:", err)
-					}
-				}(conn)
+			if err := common.HandleListenerLoop(ctx, sshL, s.sshHandler.Handle, s.log, "SSH"); err != nil {
+				s.log.Debug("SSH listener loop ended:", err)
 			}
 		}()
 	}

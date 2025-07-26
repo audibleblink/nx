@@ -44,13 +44,20 @@ func NewManager(
 	}
 }
 
-// InstallBundledPlugins installs bundled plugins to the config directory
-func (m *Manager) InstallBundledPlugins() error {
+// InstallBundledPlugins installs bundled plugins to the config directory.
+// If embeddedPath is provided, it will be used instead of the default "plugins" path.
+func (m *Manager) InstallBundledPlugins(embeddedPath ...string) error {
 	log := m.log.Add("InstallBundledPlugins")
 
-	entries, err := m.bundledPlugins.ReadDir("plugins")
+	// Use default path if none provided
+	pluginPath := "plugins"
+	if len(embeddedPath) > 0 && embeddedPath[0] != "" {
+		pluginPath = embeddedPath[0]
+	}
+
+	entries, err := m.bundledPlugins.ReadDir(pluginPath)
 	if err != nil {
-		return fmt.Errorf("failed to read bundled plugins: %w", err)
+		return fmt.Errorf("failed to read bundled plugins from %s: %w", pluginPath, err)
 	}
 
 	installedCount := 0
@@ -59,56 +66,7 @@ func (m *Manager) InstallBundledPlugins() error {
 			continue
 		}
 
-		content, err := m.bundledPlugins.ReadFile(filepath.Join("plugins", entry.Name()))
-		if err != nil {
-			log.Warn("Failed to read plugin:", entry.Name(), err)
-			continue
-		}
-
-		destPath := filepath.Join(m.pluginDir, entry.Name())
-
-		// Check if plugin already exists
-		if _, err := os.Stat(destPath); err == nil {
-			log.Info("Plugin already exists, skipping:", entry.Name())
-			continue
-		}
-
-		// Write plugin file
-		err = os.WriteFile(destPath, content, 0755)
-		if err != nil {
-			log.Warn("Failed to install plugin:", entry.Name(), err)
-			continue
-		}
-
-		log.Info("Installed plugin:", entry.Name())
-		installedCount++
-	}
-
-	if installedCount == 0 {
-		log.Info("No new plugins to install")
-	} else {
-		log.Info("Successfully installed", installedCount, "plugin(s) to:", m.pluginDir)
-	}
-
-	return nil
-}
-
-// InstallBundledPluginsFromPath installs bundled plugins from a specific embedded path
-func (m *Manager) InstallBundledPluginsFromPath(embeddedPath string) error {
-	log := m.log.Add("InstallBundledPluginsFromPath")
-
-	entries, err := m.bundledPlugins.ReadDir(embeddedPath)
-	if err != nil {
-		return fmt.Errorf("failed to read bundled plugins from %s: %w", embeddedPath, err)
-	}
-
-	installedCount := 0
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		content, err := m.bundledPlugins.ReadFile(filepath.Join(embeddedPath, entry.Name()))
+		content, err := m.bundledPlugins.ReadFile(filepath.Join(pluginPath, entry.Name()))
 		if err != nil {
 			log.Warn("Failed to read plugin:", entry.Name(), err)
 			continue
@@ -144,6 +102,25 @@ func (m *Manager) InstallBundledPluginsFromPath(embeddedPath string) error {
 
 // Execute executes a plugin by name in the specified tmux window
 func (m *Manager) Execute(pluginName string, window *gomux.Window) error {
+	return m.executePluginCommands(pluginName, func(command string) error {
+		return m.tmuxManager.ExecuteInWindow(window, command)
+	})
+}
+
+// ExecuteOnPane executes a plugin by name on a specific tmux pane
+func (m *Manager) ExecuteOnPane(pluginName string, target *tmux.PaneTarget) error {
+	return m.executePluginCommands(pluginName, func(command string) error {
+		// Create a new tmux manager for the target session
+		tmuxManager, err := tmux.NewManager(target.Session)
+		if err != nil {
+			return fmt.Errorf("failed to get tmux manager: %w", err)
+		}
+		return tmuxManager.ExecuteOnPane(target, command)
+	})
+}
+
+// executePluginCommands handles the common logic of reading and executing plugin commands
+func (m *Manager) executePluginCommands(pluginName string, executor func(string) error) error {
 	log := m.log.Add("Execute")
 
 	pluginPath := filepath.Join(m.pluginDir, pluginName+".sh")
@@ -169,7 +146,7 @@ func (m *Manager) Execute(pluginName string, window *gomux.Window) error {
 		}
 
 		log.Debug("command:", line)
-		err := m.tmuxManager.ExecuteInWindow(window, line)
+		err := executor(line)
 		if err != nil {
 			log.Warn("plugin command failed:", err)
 		}
