@@ -41,22 +41,6 @@ nx -vp 9090
 2. from a different machine, initiate the reverse shell
 3. nx catches the connection then starts a tmux window in the `nx` session, and starts the shell there
 
-```
-Usage:
-  nx [OPTIONS]
-
-Application Options:
-      --auto           Attempt to auto-upgrade to a tty (deprecated: use --exec auto)
-      --exec=          Execute plugin script on connection
-      --install-plugins Install bundled plugins to config directory
-  -i, --host=      Interface address on which to bind (default: 0.0.0.0)
-  -p, --port=      Port on which to bind (default: 8443)
-  -t, --target=    Tmux session name (default: nx)
-  -v, --verbose    Debug logging
-      --sleep=     adjust if --auto is failing (default: 500ms)
-  -d, --serve-dir= Directory to serve files from over HTTP
-  -s, --ssh-pass=  SSH password (empty = no auth)
-```
 
 ## Features
 
@@ -69,17 +53,16 @@ Application Options:
 
 ## Plugin System
 
-nx supports a plugin system for executing custom commands when a new connection is established. Plugins are shell scripts stored in `~/.config/nx/plugins/`.
+nx supports a plugin system for executing custom commands when a new connection is established. Plugins are shell-like scripts stored in `~/.config/nx/plugins/`. They're typed letter by letter with tmux send-keys.
 
 ### Creating Plugins
 
 1. Create a shell script in `~/.config/nx/plugins/<name>.sh`
-2. Make it executable: `chmod +x ~/.config/nx/plugins/<name>.sh`
-3. Use the plugin: `nx --exec <name>`
+1. Use the plugin: `nx --exec <name>`
 
 ### Plugin Format
 
-Plugins are simple shell scripts with these features:
+Plugins are simple text scripts that are literally typed into your reverse shell:
 - Lines starting with `#` are ignored (comments)
 - Empty lines are ignored
 - All other lines are executed as tmux `send-keys` commands in the reverse shell
@@ -97,6 +80,7 @@ whoami
 ### Built-in Plugins
 
 - **auto**: TTY upgrade script
+- **utils**: some QoL
 - install with `nx --install-plugins`
 
 ## Protocol Multiplexing
