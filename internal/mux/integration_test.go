@@ -18,52 +18,18 @@ import (
 // TestEndToEndHTTP tests end-to-end HTTP functionality
 func TestEndToEndHTTP(t *testing.T) {
 	t.Run("HTTP GET request routing", func(t *testing.T) {
-		// Create server with HTTP handler
-		cfg := &config.Config{
-			Iface: "127.0.0.1",
-			Port:  "0",
-		}
-
-		httpHandler := protocols.NewHTTPHandler("")
-		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
-
-		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
-		require.NoError(t, err)
-		defer server.Stop()
-
-		// Start server
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		serverDone := make(chan error, 1)
-		go func() {
-			serverDone <- server.Start(ctx)
-		}()
-
-		// Give server time to start
-		time.Sleep(100 * time.Millisecond)
-
-		// Get the actual listening address
-		addr := server.listener.Addr().String()
+		// Create test server
+		server := NewTestServer(t, NewTestConfig())
+		defer server.Close(t)
 
 		// Make HTTP request
 		client := &http.Client{Timeout: 2 * time.Second}
-		resp, err := client.Get("http://" + addr + "/")
+		resp, err := client.Get("http://" + server.Addr() + "/")
 
 		if err == nil {
 			defer resp.Body.Close()
 			// Should get a response (even if 404, it means HTTP routing worked)
 			assert.True(t, resp.StatusCode >= 200 && resp.StatusCode < 600)
-		}
-
-		// Stop server
-		server.Stop()
-
-		// Wait for server to finish
-		select {
-		case <-serverDone:
-		case <-time.After(3 * time.Second):
-			t.Log("Server did not shut down within timeout (expected in some cases)")
 		}
 	})
 }
@@ -72,36 +38,13 @@ func TestEndToEndHTTP(t *testing.T) {
 func TestEndToEndShell(t *testing.T) {
 	t.Run("shell connection routing", func(t *testing.T) {
 		t.Skip("Skipping shell integration test - requires complex tmux/socket setup")
-		// Create server with shell handler
-		cfg := &config.Config{
-			Iface: "127.0.0.1",
-			Port:  "0",
-		}
 
-		httpHandler := protocols.NewHTTPHandler("")
-		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
-
-		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
-		require.NoError(t, err)
-		defer server.Stop()
-
-		// Start server
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		serverDone := make(chan error, 1)
-		go func() {
-			serverDone <- server.Start(ctx)
-		}()
-
-		// Give server time to start
-		time.Sleep(100 * time.Millisecond)
-
-		// Get the actual listening address
-		addr := server.listener.Addr().String()
+		// Create test server
+		server := NewTestServer(t, NewTestConfig())
+		defer server.Close(t)
 
 		// Make a raw TCP connection (should route to shell handler)
-		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		conn, err := net.DialTimeout("tcp", server.Addr(), 2*time.Second)
 		if err == nil {
 			defer conn.Close()
 
@@ -119,16 +62,6 @@ func TestEndToEndShell(t *testing.T) {
 				assert.True(t, readErr == nil || strings.Contains(readErr.Error(), "timeout"))
 			}
 		}
-
-		// Stop server
-		server.Stop()
-
-		// Wait for server to finish
-		select {
-		case <-serverDone:
-		case <-time.After(3 * time.Second):
-			t.Log("Server did not shut down within timeout (expected in some cases)")
-		}
 	})
 }
 
@@ -141,7 +74,7 @@ func TestProtocolMultiplexing(t *testing.T) {
 			Port:  "0",
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -201,33 +134,9 @@ func TestProtocolMultiplexing(t *testing.T) {
 // TestConcurrentConnections tests handling of multiple concurrent connections
 func TestConcurrentConnections(t *testing.T) {
 	t.Run("multiple concurrent HTTP connections", func(t *testing.T) {
-		// Create server
-		cfg := &config.Config{
-			Iface: "127.0.0.1",
-			Port:  "0",
-		}
-
-		httpHandler := protocols.NewHTTPHandler("")
-		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
-
-		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
-		require.NoError(t, err)
-		defer server.Stop()
-
-		// Start server
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		serverDone := make(chan error, 1)
-		go func() {
-			serverDone <- server.Start(ctx)
-		}()
-
-		// Give server time to start
-		time.Sleep(100 * time.Millisecond)
-
-		// Get the actual listening address
-		addr := server.listener.Addr().String()
+		// Create test server
+		server := NewTestServer(t, NewTestConfig())
+		defer server.Close(t)
 
 		// Make multiple concurrent HTTP requests
 		const numRequests = 5
@@ -236,7 +145,7 @@ func TestConcurrentConnections(t *testing.T) {
 		for i := range numRequests {
 			go func(id int) {
 				client := &http.Client{Timeout: 3 * time.Second}
-				resp, err := client.Get(fmt.Sprintf("http://%s/?req=%d", addr, id))
+				resp, err := client.Get(fmt.Sprintf("http://%s/?req=%d", server.Addr(), id))
 				if err == nil {
 					resp.Body.Close()
 				}
@@ -254,17 +163,7 @@ func TestConcurrentConnections(t *testing.T) {
 		}
 
 		// At least some requests should succeed
-		assert.True(t, successCount > 0, "At least some concurrent requests should succeed")
-
-		// Stop server
-		server.Stop()
-
-		// Wait for server to finish
-		select {
-		case <-serverDone:
-		case <-time.After(3 * time.Second):
-			t.Log("Server did not shut down within timeout (expected in some cases)")
-		}
+		assert.Greater(t, successCount, 0, "At least one HTTP request should succeed")
 	})
 }
 
@@ -277,7 +176,7 @@ func TestServerResilience(t *testing.T) {
 			Port:  "0",
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -350,7 +249,7 @@ func TestConnectionLifecycle(t *testing.T) {
 			Port:  "0",
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -407,7 +306,7 @@ func BenchmarkConcurrentConnections(b *testing.B) {
 		Port:  "0",
 	}
 
-	httpHandler := protocols.NewHTTPHandler("")
+	httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 	shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 	server, err := NewServer(cfg, httpHandler, nil, shellHandler)

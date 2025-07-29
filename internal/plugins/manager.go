@@ -102,14 +102,24 @@ func (m *Manager) InstallBundledPlugins(embeddedPath ...string) error {
 
 // Execute executes a plugin by name in the specified tmux window
 func (m *Manager) Execute(pluginName string, window *gomux.Window) error {
-	return m.executePluginCommands(pluginName, func(command string) error {
+	commands, err := m.readPluginCommands(pluginName)
+	if err != nil {
+		return err
+	}
+
+	return m.executeCommands(pluginName, commands, func(command string) error {
 		return m.tmuxManager.ExecuteInWindow(window, command)
 	})
 }
 
 // ExecuteOnPane executes a plugin by name on a specific tmux pane
 func (m *Manager) ExecuteOnPane(pluginName string, target *tmux.PaneTarget) error {
-	return m.executePluginCommands(pluginName, func(command string) error {
+	commands, err := m.readPluginCommands(pluginName)
+	if err != nil {
+		return err
+	}
+
+	return m.executeCommands(pluginName, commands, func(command string) error {
 		// Create a new tmux manager for the target session
 		tmuxManager, err := tmux.NewManager(target.Session)
 		if err != nil {
@@ -119,47 +129,50 @@ func (m *Manager) ExecuteOnPane(pluginName string, target *tmux.PaneTarget) erro
 	})
 }
 
-// executePluginCommands handles the common logic of reading and executing plugin commands
-func (m *Manager) executePluginCommands(pluginName string, executor func(string) error) error {
-	log := m.log.Add("Execute")
-
+// readPluginCommands reads and parses commands from a plugin file
+func (m *Manager) readPluginCommands(pluginName string) ([]string, error) {
 	pluginPath := filepath.Join(m.pluginDir, pluginName+".sh")
 	if _, err := os.Stat(pluginPath); os.IsNotExist(err) {
-		return fmt.Errorf("plugin not found: %s", pluginPath)
+		return nil, fmt.Errorf("plugin not found: %s", pluginPath)
 	}
 
 	file, err := os.Open(pluginPath)
 	if err != nil {
-		return fmt.Errorf("failed to open plugin: %w", err)
+		return nil, fmt.Errorf("failed to open plugin: %w", err)
 	}
 	defer file.Close()
 
-	log.Add("Plugin").Info("Running:", pluginName)
-
+	var commands []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-
 		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+		if line != "" && !strings.HasPrefix(line, "#") {
+			commands = append(commands, line)
 		}
-
-		log.Debug("command:", line)
-		err := executor(line)
-		if err != nil {
-			log.Warn("plugin command failed:", err)
-		}
-
-		// Default sleep between commands
-		time.Sleep(m.sleepDuration)
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading plugin: %w", err)
+		return nil, fmt.Errorf("error reading plugin: %w", err)
 	}
 
-	log.Add("Plugin").Info("Done:", pluginName)
+	return commands, nil
+}
+
+// executeCommands executes a list of commands using the provided executor
+func (m *Manager) executeCommands(pluginName string, commands []string, executor func(string) error) error {
+	log := m.log.Add("Execute")
+	log.Info("Running plugin:", pluginName)
+
+	for _, command := range commands {
+		log.Debug("command:", command)
+		if err := executor(command); err != nil {
+			log.Warn("plugin command failed:", err)
+		}
+		time.Sleep(m.sleepDuration)
+	}
+
+	log.Info("Plugin completed:", pluginName)
 	return nil
 }
 

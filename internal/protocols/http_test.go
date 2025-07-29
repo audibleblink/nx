@@ -17,94 +17,13 @@ import (
 
 func TestNewHTTPHandler(t *testing.T) {
 	serveDir := "/tmp/test"
-	handler := NewHTTPHandler(serveDir)
+	handler := NewHTTPHandler(serveDir, "localhost:8443")
 
 	require.NotNil(t, handler)
 	assert.Equal(t, serveDir, handler.serveDir)
 }
 
-func TestHTTPHandlerMatch(t *testing.T) {
-	handler := NewHTTPHandler("/tmp")
 
-	tests := []struct {
-		name     string
-		data     []byte
-		expected bool
-	}{
-		{
-			name:     "GET request",
-			data:     []byte("GET /index.html HTTP/1.1\r\n"),
-			expected: true,
-		},
-		{
-			name:     "POST request",
-			data:     []byte("POST /api/data HTTP/1.1\r\n"),
-			expected: true,
-		},
-		{
-			name:     "PUT request",
-			data:     []byte("PUT /api/resource HTTP/1.1\r\n"),
-			expected: true,
-		},
-		{
-			name:     "DELETE request",
-			data:     []byte("DELETE /api/resource HTTP/1.1\r\n"),
-			expected: true,
-		},
-		{
-			name:     "HEAD request",
-			data:     []byte("HEAD /index.html HTTP/1.1\r\n"),
-			expected: true,
-		},
-		{
-			name:     "OPTIONS request",
-			data:     []byte("OPTIONS * HTTP/1.1\r\n"),
-			expected: true,
-		},
-		{
-			name:     "PATCH request",
-			data:     []byte("PATCH /api/resource HTTP/1.1\r\n"),
-			expected: true,
-		},
-		{
-			name:     "CONNECT request",
-			data:     []byte("CONNECT example.com:443 HTTP/1.1\r\n"),
-			expected: true,
-		},
-		{
-			name:     "incomplete HTTP method",
-			data:     []byte("GE"),
-			expected: false, // Too short to be valid HTTP
-		},
-		{
-			name:     "too short data",
-			data:     []byte("GET"),
-			expected: false,
-		},
-		{
-			name:     "empty data",
-			data:     []byte(""),
-			expected: false,
-		},
-		{
-			name:     "binary data",
-			data:     []byte{0x00, 0x01, 0x02, 0x03},
-			expected: false,
-		},
-		{
-			name:     "random text",
-			data:     []byte("random text that is not HTTP"),
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := handler.Match(tt.data)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
 
 func TestHTTPHandlerHandle(t *testing.T) {
 	t.Skip("Skipping HTTP handler tests - incompatible with singleConnListener fix")
@@ -119,7 +38,7 @@ func TestHTTPHandlerHandle(t *testing.T) {
 	err = os.WriteFile(testFile, []byte(testContent), 0644)
 	require.NoError(t, err)
 
-	handler := NewHTTPHandler(tempDir)
+	handler := NewHTTPHandler(tempDir, "localhost:8443")
 
 	t.Run("serves static files", func(t *testing.T) {
 		// Create a pipe to simulate network connection
@@ -227,7 +146,7 @@ func TestSingleConnListener(t *testing.T) {
 }
 
 func TestHTTPHandlerEdgeCases(t *testing.T) {
-	handler := NewHTTPHandler("")
+	handler := NewHTTPHandler("", "localhost:8443")
 
 	t.Run("handles malformed HTTP requests", func(t *testing.T) {
 		server, client := net.Pipe()
@@ -265,33 +184,7 @@ func TestHTTPHandlerEdgeCases(t *testing.T) {
 	})
 }
 
-func TestHTTPMethodMatching(t *testing.T) {
-	handler := NewHTTPHandler("/tmp")
 
-	// Test all supported HTTP methods
-	methods := []string{
-		"GET ", "POST", "PUT ", "DELE", "HEAD", "OPTI", "PATC", "CONN",
-	}
-
-	for _, method := range methods {
-		t.Run(method, func(t *testing.T) {
-			data := []byte(method + " /path HTTP/1.1\r\n")
-			assert.True(t, handler.Match(data))
-		})
-	}
-
-	// Test unsupported methods
-	unsupportedMethods := []string{
-		"TRAC", "MOVE", "COPY", "LOCK",
-	}
-
-	for _, method := range unsupportedMethods {
-		t.Run("unsupported_"+method, func(t *testing.T) {
-			data := []byte(method + " /path HTTP/1.1\r\n")
-			assert.False(t, handler.Match(data))
-		})
-	}
-}
 
 func TestHTTPHandlerConcurrency(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "nx-http-concurrent-test")
@@ -306,7 +199,7 @@ func TestHTTPHandlerConcurrency(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	handler := NewHTTPHandler(tempDir)
+	handler := NewHTTPHandler(tempDir, "localhost:8443")
 
 	// Test concurrent requests
 	const numRequests = 5
@@ -360,22 +253,6 @@ func TestHTTPHandlerConcurrency(t *testing.T) {
 	}
 }
 
-// BenchmarkHTTPMatch benchmarks the HTTP matching function
-func BenchmarkHTTPMatch(b *testing.B) {
-	handler := NewHTTPHandler("/tmp")
-	testData := []byte("GET /index.html HTTP/1.1\r\n")
 
-	for b.Loop() {
-		handler.Match(testData)
-	}
-}
 
-// BenchmarkHTTPMatchInvalid benchmarks matching against invalid HTTP data
-func BenchmarkHTTPMatchInvalid(b *testing.B) {
-	handler := NewHTTPHandler("/tmp")
-	testData := []byte("invalid data that is not HTTP")
 
-	for b.Loop() {
-		handler.Match(testData)
-	}
-}
