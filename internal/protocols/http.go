@@ -6,10 +6,11 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/audibleblink/logerr"
+
+	"github.com/audibleblink/nx/internal/common"
 )
 
 // HTTPHandler handles HTTP file serving and proxy requests
@@ -27,6 +28,8 @@ func NewHTTPHandler(serveDir string) *HTTPHandler {
 }
 
 // Match checks if the connection data matches HTTP protocol
+// NOTE: This method is not used in production - cmux handles protocol detection
+// It exists only for backward compatibility with tests
 func (h *HTTPHandler) Match(data []byte) bool {
 	if len(data) < 4 {
 		return false
@@ -50,43 +53,20 @@ func (h *HTTPHandler) Handle(conn net.Conn) error {
 
 // HandleListener handles connections from a listener (for HTTPS CONNECT)
 func (h *HTTPHandler) HandleListener(ctx context.Context, listener net.Listener) error {
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			// Check for context cancellation or shutdown
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			// Check if this is a shutdown-related error
-			if strings.Contains(err.Error(), "closed") ||
-				strings.Contains(err.Error(), "server closed") {
-				h.log.Info("HTTP listener closed, shutting down")
-				return err
-			}
-
-			h.log.Error("HTTP listener accept:", err)
-			// Add a small delay for other errors to prevent tight loops
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
+	// Custom handler that includes EOF handling
+	handler := func(conn net.Conn) error {
 		h.log.Debug("incoming:", conn.RemoteAddr().String())
-
-		// Handle connection in goroutine
-		go func(conn net.Conn) {
-			defer conn.Close()
-			if err := h.Handle(conn); err != nil {
-				if errors.Is(err, io.EOF) {
-					h.log.Debug("conn closed")
-					return
-				}
-				h.log.Error("HTTP connection error:", err)
+		if err := h.Handle(conn); err != nil {
+			if errors.Is(err, io.EOF) {
+				h.log.Debug("conn closed")
+				return nil
 			}
-		}(conn)
+			return err
+		}
+		return nil
 	}
+
+	return common.HandleListenerLoop(ctx, listener, handler, h.log, "HTTP")
 }
 
 // handleHTTPSProxy handles HTTPS CONNECT requests for tunneling
