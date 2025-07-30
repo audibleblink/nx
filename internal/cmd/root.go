@@ -57,7 +57,7 @@ func Execute(plugins embed.FS) {
 	bundledPlugins = plugins
 
 	// Add subcommands
-	rootCmd.AddCommand(serverCmd)
+	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(execCmd)
 	rootCmd.AddCommand(completionCmd)
 

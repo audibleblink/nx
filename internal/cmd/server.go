@@ -6,9 +6,9 @@ import (
 	"github.com/audibleblink/nx/internal/config"
 )
 
-// serverCmd represents the server command
-var serverCmd = &cobra.Command{
-	Use:   "server",
+// serveCmd represents the serve command
+var serveCmd = &cobra.Command{
+	Use:   "serve",
 	Short: "Start the nx multiplexed server",
 	Long: `Start the nx multiplexed server with HTTP file serving, SSH access,
 and shell command execution capabilities. This is the default behavior when
@@ -41,15 +41,15 @@ The server provides:
 
 func init() {
 	// Define flags directly without global variables
-	serverCmd.Flags().Bool("auto", false, "Attempt to auto-upgrade to a tty (uses --exec auto)")
-	serverCmd.Flags().String("exec", "", "Execute plugin scripts on connection (comma-separated)")
-	serverCmd.Flags().Bool("continue-on-error", false, "Continue executing remaining scripts if one fails")
-	serverCmd.Flags().Duration("script-timeout", 30000000000, "Timeout per script execution") // 30s in nanoseconds
-	serverCmd.Flags().StringP("host", "i", "0.0.0.0", "Interface address on which to bind")
-	serverCmd.Flags().StringP("port", "p", "8443", "Port on which to bind")
-	serverCmd.Flags().StringP("serve-dir", "d", "", "Directory to serve files from over HTTP")
-	serverCmd.Flags().StringP("target", "t", DefaultSessionName, "Tmux session name")
-	serverCmd.Flags().Duration("sleep", DefaultSleep, "adjust if --auto is failing")
-	serverCmd.Flags().BoolP("verbose", "v", false, "Debug logging")
-	serverCmd.Flags().StringP("ssh-pass", "s", "", "SSH password (empty = no auth)")
+	serveCmd.Flags().Bool("auto", false, "Attempt to auto-upgrade to a tty (uses --exec auto)")
+	serveCmd.Flags().String("exec", "", "Execute plugin scripts on connection (comma-separated)")
+	serveCmd.Flags().Bool("continue-on-error", false, "Continue executing remaining scripts if one fails")
+	serveCmd.Flags().Duration("script-timeout", 30000000000, "Timeout per script execution") // 30s in nanoseconds
+	serveCmd.Flags().StringP("host", "i", "0.0.0.0", "Interface address on which to bind")
+	serveCmd.Flags().StringP("port", "p", "8443", "Port on which to bind")
+	serveCmd.Flags().StringP("serve-dir", "d", "", "Directory to serve files from over HTTP")
+	serveCmd.Flags().StringP("target", "t", DefaultSessionName, "Tmux session name")
+	serveCmd.Flags().Duration("sleep", DefaultSleep, "adjust if --auto is failing")
+	serveCmd.Flags().BoolP("verbose", "v", false, "Debug logging")
+	serveCmd.Flags().StringP("ssh-pass", "s", "", "SSH password (empty = no auth)")
 }
