@@ -15,23 +15,28 @@ import (
 
 // execCmd represents the exec command
 var execCmd = &cobra.Command{
-	Use:   "exec <script>",
-	Short: "Execute a plugin script on a tmux pane",
-	Long: `Execute a plugin script on a specified tmux pane. The script must be
+	Use:   "exec <scripts>",
+	Short: "Execute plugin script(s) on a tmux pane",
+	Long: `Execute one or more plugin scripts on a specified tmux pane. Scripts must be
 installed in the plugins directory, and the target pane must exist.
+
+Multiple scripts can be specified as comma-separated values and will be executed sequentially.
 
 The target pane is specified using tmux notation: session:window.pane
 
 Examples:
   nx exec auto --on nx:0.1
-  nx exec cleanup --on myapp:1.0 --dry-run`,
+  nx exec auto,utils,cleanup --on myapp:1.0 --dry-run
+  nx exec "script1, script2, script3" --on nx:0.1 --continue-on-error`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		// Create exec config from flags and args using cobra's built-in flag access
 		cfg := &config.ExecCommand{}
-		cfg.Args.Script = args[0]
+		cfg.Args.Scripts = args[0]
 		cfg.On, _ = cmd.Flags().GetString("on")
 		cfg.DryRun, _ = cmd.Flags().GetBool("dry-run")
+		cfg.ContinueOnError, _ = cmd.Flags().GetBool("continue-on-error")
+		cfg.ScriptTimeout, _ = cmd.Flags().GetDuration("script-timeout")
 
 		executeExecCommand(cfg)
 	},
@@ -41,13 +46,16 @@ func init() {
 	// Define flags directly without global variables
 	execCmd.Flags().String("on", "", "Target pane using tmux notation (session:window.pane)")
 	execCmd.Flags().Bool("dry-run", false, "Preview execution without running")
+	execCmd.Flags().Bool("continue-on-error", false, "Continue executing remaining scripts if one fails")
+	execCmd.Flags().Duration("script-timeout", 30000000000, "Timeout per script execution") // 30s in nanoseconds
 	execCmd.MarkFlagRequired("on")
 }
 
 // executeExecCommand runs the exec command with the given configuration
 func executeExecCommand(cfg *config.ExecCommand) {
-	// Validate that we have a script argument
-	if cfg.Args.Script == "" {
+	// Get scripts from config (handles comma-separated parsing)
+	scripts := cfg.GetScripts()
+	if len(scripts) == 0 {
 		fatalWithSuggestions("Missing script argument", true, false, nil)
 	}
 
@@ -76,26 +84,30 @@ func executeExecCommand(cfg *config.ExecCommand) {
 		)
 	}
 
-	// Check plugin exists
-	if !managers.Plugin.PluginExists(cfg.Args.Script) {
-		fatalWithSuggestions(
-			fmt.Sprintf("Plugin '%s' not found", cfg.Args.Script),
-			true, false, managers,
-		)
+	// Validate all scripts exist before executing any
+	for _, script := range scripts {
+		if !managers.Plugin.PluginExists(script) {
+			fatalWithSuggestions(
+				fmt.Sprintf("Plugin '%s' not found", script),
+				true, false, managers,
+			)
+		}
 	}
 
 	// Handle dry-run
 	if cfg.DryRun {
-		showDryRun(cfg.Args.Script, cfg.On, managers.Plugin)
+		showDryRunMultiple(scripts, cfg.On, managers.Plugin)
 		return
 	}
 
-	// Execute plugin
-	logerr.Info(fmt.Sprintf("Running '%s' on %s...", cfg.Args.Script, cfg.On))
-	if err := managers.Plugin.ExecuteOnPane(cfg.Args.Script, target); err != nil {
-		logerr.Fatal("Failed to execute plugin:", err)
+	// Execute scripts sequentially
+	logerr.Info(fmt.Sprintf("Running %d script(s) on %s...", len(scripts), cfg.On))
+	
+	if err := managers.Plugin.ExecuteMultipleOnPane(scripts, target, cfg.ContinueOnError); err != nil {
+		logerr.Fatal("Failed to execute scripts:", err)
 	}
-	logerr.Info("Script completed successfully")
+	
+	logerr.Info("All scripts completed successfully")
 }
 
 // showDryRun displays what would be executed in dry-run mode
@@ -112,6 +124,33 @@ func showDryRun(script, target string, pluginManager *plugins.Manager) {
 		line = strings.TrimSpace(line)
 		if line != "" && !strings.HasPrefix(line, "#") {
 			logerr.Info("  " + line)
+		}
+	}
+}
+
+// showDryRunMultiple displays what would be executed for multiple scripts in dry-run mode
+func showDryRunMultiple(scripts []string, target string, pluginManager *plugins.Manager) {
+	logerr.Info(fmt.Sprintf("Would run %d script(s) on %s:", len(scripts), target))
+	
+	for i, script := range scripts {
+		logerr.Info(fmt.Sprintf("[%d/%d] Script '%s':", i+1, len(scripts), script))
+		
+		pluginPath := filepath.Join(pluginManager.GetPluginDir(), script+".sh")
+		content, err := os.ReadFile(pluginPath)
+		if err != nil {
+			logerr.Error(fmt.Sprintf("Failed to read plugin file '%s': %v", script, err))
+			continue
+		}
+
+		for _, line := range strings.Split(string(content), "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, "#") {
+				logerr.Info("    " + line)
+			}
+		}
+		
+		if i < len(scripts)-1 {
+			logerr.Info("") // Add spacing between scripts
 		}
 	}
 }

@@ -18,12 +18,14 @@ The server provides:
 - HTTP file serving (when --serve-dir is specified)
 - SSH server with optional password authentication
 - Shell command execution with tmux integration
-- Plugin-based automation system`,
+- Plugin-based automation system with multiple script support`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Create config from flags using cobra's built-in flag access
 		cfg := &config.Config{}
 		cfg.Auto, _ = cmd.Flags().GetBool("auto")
 		cfg.Exec, _ = cmd.Flags().GetString("exec")
+		cfg.ContinueOnError, _ = cmd.Flags().GetBool("continue-on-error")
+		cfg.ScriptTimeout, _ = cmd.Flags().GetDuration("script-timeout")
 		cfg.InstallPlugins = false
 		cfg.Iface, _ = cmd.Flags().GetString("host")
 		cfg.Port, _ = cmd.Flags().GetString("port")
@@ -40,7 +42,9 @@ The server provides:
 func init() {
 	// Define flags directly without global variables
 	serverCmd.Flags().Bool("auto", false, "Attempt to auto-upgrade to a tty (uses --exec auto)")
-	serverCmd.Flags().String("exec", "", "Execute plugin script on connection")
+	serverCmd.Flags().String("exec", "", "Execute plugin scripts on connection (comma-separated)")
+	serverCmd.Flags().Bool("continue-on-error", false, "Continue executing remaining scripts if one fails")
+	serverCmd.Flags().Duration("script-timeout", 30000000000, "Timeout per script execution") // 30s in nanoseconds
 	serverCmd.Flags().StringP("host", "i", "0.0.0.0", "Interface address on which to bind")
 	serverCmd.Flags().StringP("port", "p", "8443", "Port on which to bind")
 	serverCmd.Flags().StringP("serve-dir", "d", "", "Directory to serve files from over HTTP")

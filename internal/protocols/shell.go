@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/audibleblink/logerr"
-
 	"github.com/audibleblink/nx/internal/common"
 	"github.com/audibleblink/nx/internal/config"
 	"github.com/audibleblink/nx/internal/plugins"
 	"github.com/audibleblink/nx/internal/tmux"
 	"github.com/audibleblink/nx/pkg/socket"
+	"github.com/disneystreaming/gomux"
 )
 
 // ShellHandler handles shell connections
@@ -43,9 +43,6 @@ func NewShellHandler(
 	}
 }
 
-
-
-// Match checks if the connection data matches shell protocol (fallback)
 // Handle processes shell connections
 func (h *ShellHandler) Handle(conn net.Conn) error {
 	return h.handleShellConnection(conn)
@@ -53,7 +50,6 @@ func (h *ShellHandler) Handle(conn net.Conn) error {
 
 // HandleListener handles incoming shell connections on a listener
 func (h *ShellHandler) HandleListener(ctx context.Context, listener net.Listener) error {
-	// Custom handler that includes debug logging
 	handler := func(conn net.Conn) error {
 		h.log.Debug("incoming:", conn.RemoteAddr().String())
 		return h.handleShellConnection(conn)
@@ -64,81 +60,104 @@ func (h *ShellHandler) HandleListener(ctx context.Context, listener net.Listener
 
 // handleShellConnection processes a single shell connection
 func (h *ShellHandler) handleShellConnection(conn net.Conn) error {
-	// Check if required managers are available (required for shell functionality)
-	if h.socketManager == nil {
-		return fmt.Errorf("socket manager not initialized - shell functionality disabled")
-	}
-	if h.tmuxManager == nil {
-		return fmt.Errorf("tmux manager not initialized - shell functionality disabled")
+	if err := h.validateManagers(); err != nil {
+		return err
 	}
 
-	// Generate unique socket filename
-	socketFile, err := h.socketManager.GenerateTempFilename()
+	socketFile, unixListener, err := h.createUnixSocket()
 	if err != nil {
-		return fmt.Errorf("failed to generate socket filename: %w", err)
+		return err
 	}
 
-	// Create Unix domain socket
-	unixListener, err := h.socketManager.CreateUnixListener(socketFile)
-	if err != nil {
-		return fmt.Errorf("failed to create unix listener: %w", err)
-	}
-
-	h.log.Debug("socket file created:", socketFile)
-
-	// Bridge TCP connection to Unix socket in background
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Channel to receive bridge completion
 	bridgeDone := make(chan error, 1)
-
 	go func() {
-		err := h.socketManager.BridgeConnections(ctx, conn, unixListener)
-		bridgeDone <- err
+		bridgeDone <- h.socketManager.BridgeConnections(ctx, conn, unixListener)
 	}()
 
-	// Create tmux window for the reverse shell
-	window, err := h.tmuxManager.CreateWindow(socketFile)
+	window, err := h.createTmuxWindow(socketFile, conn)
 	if err != nil {
-		return fmt.Errorf("failed to create tmux window: %w", err)
+		return err
 	}
 
-	// Execute socat command in tmux window
-	// Intentional space prefix to keep shell history clean
-	socatCmd := fmt.Sprintf(" socat -d -d stdio unix-connect:'%s'", socketFile)
-	if err := h.tmuxManager.ExecuteInWindow(window, socatCmd); err != nil {
-		return fmt.Errorf("failed to execute socat command: %w", err)
-	}
+	h.setupEnvironment(window)
+	h.executePlugins(window)
 
-	tmuxLoc := fmt.Sprintf("%s:%d.0", h.tmuxManager.GetSessionName(), window.Number)
-	h.log.Infof("new shell on %s: %s", tmuxLoc, conn.RemoteAddr().String())
-
-	// Set environment variables for convenience
-	time.Sleep(h.config.Sleep)
-	envCmd := fmt.Sprintf(
-		" export ME=%s all_proxy=http://%s http_proxy=http://%s https_proxy=http://%s ; clear",
-		h.connStr, h.connStr, h.connStr, h.connStr,
-	)
-	_ = h.tmuxManager.ExecuteInWindow(window, envCmd)
-
-	// Handle plugin execution
-	execPlugin := h.config.Exec
-	if h.config.Auto {
-		execPlugin = "auto" // backward compatibility
-	}
-
-	if execPlugin != "" {
-		if err := h.pluginManager.Execute(execPlugin, window); err != nil {
-			h.log.Error("plugin execution:", err)
-		}
-	}
-
-	// Wait for bridge connection to complete
 	err = <-bridgeDone
 	if err != nil && err != context.Canceled {
 		h.log.Warn("bridge connection error:", err)
 	}
 
 	return nil
+}
+
+// validateManagers checks if required managers are available
+func (h *ShellHandler) validateManagers() error {
+	if h.socketManager == nil {
+		return fmt.Errorf("socket manager not initialized - shell functionality disabled")
+	}
+	if h.tmuxManager == nil {
+		return fmt.Errorf("tmux manager not initialized - shell functionality disabled")
+	}
+	return nil
+}
+
+// createUnixSocket creates a Unix domain socket for the shell connection
+func (h *ShellHandler) createUnixSocket() (string, net.Listener, error) {
+	socketFile, err := h.socketManager.GenerateTempFilename()
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to generate socket filename: %w", err)
+	}
+
+	unixListener, err := h.socketManager.CreateUnixListener(socketFile)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create unix listener: %w", err)
+	}
+
+	h.log.Debug("socket file created:", socketFile)
+	return socketFile, unixListener, nil
+}
+
+// createTmuxWindow creates a tmux window and executes the socat command
+func (h *ShellHandler) createTmuxWindow(socketFile string, conn net.Conn) (*gomux.Window, error) {
+	window, err := h.tmuxManager.CreateWindow(socketFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tmux window: %w", err)
+	}
+
+	socatCmd := fmt.Sprintf(" socat -d -d stdio unix-connect:'%s'", socketFile)
+	if err := h.tmuxManager.ExecuteInWindow(window, socatCmd); err != nil {
+		return nil, fmt.Errorf("failed to execute socat command: %w", err)
+	}
+
+	tmuxLoc := fmt.Sprintf("%s:%d.0", h.tmuxManager.GetSessionName(), window.Number)
+	h.log.Infof("new shell on %s: %s", tmuxLoc, conn.RemoteAddr().String())
+
+	return window, nil
+}
+
+// setupEnvironment sets up environment variables for convenience
+func (h *ShellHandler) setupEnvironment(window *gomux.Window) {
+	time.Sleep(h.config.Sleep)
+	envCmd := fmt.Sprintf(
+		" export ME=%s all_proxy=http://%s http_proxy=http://%s https_proxy=http://%s ; clear",
+		h.connStr, h.connStr, h.connStr, h.connStr,
+	)
+	_ = h.tmuxManager.ExecuteInWindow(window, envCmd)
+}
+
+// executePlugins handles plugin execution
+func (h *ShellHandler) executePlugins(window *gomux.Window) {
+	scripts := h.config.GetExecScripts()
+	if h.config.Auto {
+		scripts = []string{"auto"}
+	}
+
+	if len(scripts) > 0 {
+		if err := h.pluginManager.ExecuteMultiple(scripts, window, h.config.ContinueOnError); err != nil {
+			h.log.Error("plugin execution:", err)
+		}
+	}
 }
