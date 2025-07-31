@@ -35,16 +35,7 @@ func NewSSHHandler(password string) (*SSHHandler, error) {
 	return handler, nil
 }
 
-// Match checks if the connection data matches SSH protocol
-// NOTE: This method is not used in production - cmux handles protocol detection
-// It exists only for backward compatibility with tests
-func (h *SSHHandler) Match(data []byte) bool {
-	if len(data) < 4 {
-		return false
-	}
-	// SSH protocol identification string starts with "SSH-"
-	return string(data[:4]) == "SSH-"
-}
+
 
 // Handle processes SSH connections
 func (h *SSHHandler) Handle(conn net.Conn) error {

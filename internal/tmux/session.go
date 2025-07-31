@@ -142,16 +142,22 @@ func (m *Manager) ParseTarget(target string) (*PaneTarget, error) {
 // ListPanes returns information about all available panes
 func (m *Manager) ListPanes() ([]PaneInfo, error) {
 	// Use tmux list-panes command to get all panes
-	cmd := exec.Command("tmux", "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}|#{pane_active}|#{window_name}")
+	cmd := exec.Command(
+		"tmux",
+		"list-panes",
+		"-a",
+		"-F",
+		"#{session_name}:#{window_index}.#{pane_index}|#{pane_active}|#{window_name}",
+	)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list panes: %w", err)
 	}
 
 	var panes []PaneInfo
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	lines := strings.SplitSeq(strings.TrimSpace(string(output)), "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		if line == "" {
 			continue
 		}
@@ -203,7 +209,11 @@ func (m *Manager) ValidatePane(target *PaneTarget) error {
 	cmd := exec.Command("tmux", "display-message", "-t", targetStr, "-p", "#{pane_id}")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("pane %s does not exist or is not accessible: %s", targetStr, string(output))
+		return fmt.Errorf(
+			"pane %s does not exist or is not accessible: %s",
+			targetStr,
+			string(output),
+		)
 	}
 
 	// Check if we got a valid pane ID (should start with %)

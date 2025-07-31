@@ -19,7 +19,7 @@ func TestNewServer(t *testing.T) {
 			Port:  "0", // Use port 0 for automatic assignment
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -45,7 +45,7 @@ func TestNewServer(t *testing.T) {
 			SSHPass: "testpass",
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		sshHandler, err := protocols.NewSSHHandler("testpass")
 		require.NoError(t, err)
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
@@ -66,7 +66,7 @@ func TestNewServer(t *testing.T) {
 			Port:  "8443",
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -84,7 +84,7 @@ func TestServerStop(t *testing.T) {
 		Port:  "0",
 	}
 
-	httpHandler := protocols.NewHTTPHandler("")
+	httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 	shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 	server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -135,7 +135,7 @@ func TestServerConfiguration(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			httpHandler := protocols.NewHTTPHandler("")
+			httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 			shellHandler := protocols.NewShellHandler(tc.config, nil, nil, nil, tc.config.Address())
 
 			server, err := NewServer(tc.config, httpHandler, nil, shellHandler)
@@ -159,7 +159,7 @@ func TestServerStartShutdown(t *testing.T) {
 		Port:  "0",
 	}
 
-	httpHandler := protocols.NewHTTPHandler("")
+	httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 	shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 	server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -202,7 +202,7 @@ func TestServerHandlerIntegration(t *testing.T) {
 			SSHPass:  "testpass",
 		}
 
-		httpHandler := protocols.NewHTTPHandler(cfg.ServeDir)
+		httpHandler := protocols.NewHTTPHandler(cfg.ServeDir, cfg.Address())
 		sshHandler, err := protocols.NewSSHHandler(cfg.SSHPass)
 		require.NoError(t, err)
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
@@ -228,7 +228,7 @@ func TestServerHandlerIntegration(t *testing.T) {
 		}
 
 		// Only HTTP and Shell handlers (no SSH)
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -251,7 +251,7 @@ func TestServerErrorHandling(t *testing.T) {
 		}
 
 		// Test with nil shell handler (should still work)
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 
 		// This should fail because shell handler is required
 		server, err := NewServer(cfg, httpHandler, nil, nil)
@@ -280,7 +280,7 @@ func TestServerConcurrency(t *testing.T) {
 					Port:  "0", // Auto-assign port
 				}
 
-				httpHandler := protocols.NewHTTPHandler("")
+				httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 				shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 				servers[index], errors[index] = NewServer(cfg, httpHandler, nil, shellHandler)
@@ -313,7 +313,7 @@ func BenchmarkServerCreation(b *testing.B) {
 	}
 
 	for b.Loop() {
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -332,7 +332,7 @@ func TestProtocolDetection(t *testing.T) {
 			Port:  "0",
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -351,7 +351,7 @@ func TestProtocolDetection(t *testing.T) {
 			SSHPass: "testpass",
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		sshHandler, err := protocols.NewSSHHandler("testpass")
 		require.NoError(t, err)
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
@@ -371,7 +371,7 @@ func TestProtocolDetection(t *testing.T) {
 			Port:  "0",
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -396,7 +396,7 @@ func TestServerIntegration(t *testing.T) {
 			ServeDir: tempDir,
 		}
 
-		httpHandler := protocols.NewHTTPHandler(cfg.ServeDir)
+		httpHandler := protocols.NewHTTPHandler(cfg.ServeDir, cfg.Address())
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -416,7 +416,7 @@ func TestServerIntegration(t *testing.T) {
 			SSHPass:  "testpass",
 		}
 
-		httpHandler := protocols.NewHTTPHandler(cfg.ServeDir)
+		httpHandler := protocols.NewHTTPHandler(cfg.ServeDir, cfg.Address())
 		sshHandler, err := protocols.NewSSHHandler(cfg.SSHPass)
 		require.NoError(t, err)
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
@@ -444,7 +444,7 @@ func TestServerLifecycle(t *testing.T) {
 			Port:  "0",
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		// 1. Create server
@@ -492,7 +492,7 @@ func TestServerErrorScenarios(t *testing.T) {
 			Port:  "99999", // Invalid port
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -508,7 +508,7 @@ func TestServerErrorScenarios(t *testing.T) {
 			Port:  "8443",
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -524,7 +524,7 @@ func TestServerErrorScenarios(t *testing.T) {
 			Port:  "0",
 		}
 
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)
@@ -602,7 +602,7 @@ func TestServerConfigurationScenarios(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			httpHandler := protocols.NewHTTPHandler(tc.config.ServeDir)
+			httpHandler := protocols.NewHTTPHandler(tc.config.ServeDir, tc.config.Address())
 
 			var sshHandler *protocols.SSHHandler
 			var err error
@@ -648,7 +648,7 @@ func BenchmarkServerLifecycle(b *testing.B) {
 	}
 
 	for b.Loop() {
-		httpHandler := protocols.NewHTTPHandler("")
+		httpHandler := protocols.NewHTTPHandler("", "localhost:8443")
 		shellHandler := protocols.NewShellHandler(cfg, nil, nil, nil, cfg.Address())
 
 		server, err := NewServer(cfg, httpHandler, nil, shellHandler)

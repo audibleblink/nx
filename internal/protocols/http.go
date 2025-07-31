@@ -14,36 +14,44 @@ import (
 )
 
 // HTTPHandler handles HTTP file serving and proxy requests
+// Common constants for protocol handlers
+const (
+	// HTTP method prefixes for protocol detection
+	httpMethodGET     = "GET "
+	httpMethodPOST    = "POST"
+	httpMethodPUT     = "PUT "
+	httpMethodDELETE  = "DELE"
+	httpMethodHEAD    = "HEAD"
+	httpMethodOPTIONS = "OPTI"
+	httpMethodPATCH   = "PATC"
+	httpMethodCONNECT = "CONN"
+	
+	// SSH protocol identifier
+	
+	// Minimum data length for protocol detection
+	minProtocolDataLength = 4
+	
+	// HTTP timeouts
+)
+
+
+
 type HTTPHandler struct {
-	serveDir string
-	log      logerr.Logger
+	serveDir      string
+	serverAddress string
+	log           logerr.Logger
 }
 
 // NewHTTPHandler creates a new HTTP handler
-func NewHTTPHandler(serveDir string) *HTTPHandler {
+func NewHTTPHandler(serveDir, serverAddress string) *HTTPHandler {
 	return &HTTPHandler{
-		serveDir: serveDir,
-		log:      logerr.Add("http"),
+		serveDir:      serveDir,
+		serverAddress: serverAddress,
+		log:           logerr.Add("http"),
 	}
 }
 
-// Match checks if the connection data matches HTTP protocol
-// NOTE: This method is not used in production - cmux handles protocol detection
-// It exists only for backward compatibility with tests
-func (h *HTTPHandler) Match(data []byte) bool {
-	if len(data) < 4 {
-		return false
-	}
-	// Check for HTTP methods
-	return string(data[:4]) == "GET " ||
-		string(data[:4]) == "POST" ||
-		string(data[:4]) == "PUT " ||
-		string(data[:4]) == "DELE" ||
-		string(data[:4]) == "HEAD" ||
-		string(data[:4]) == "OPTI" ||
-		string(data[:4]) == "PATC" ||
-		string(data[:4]) == "CONN"
-}
+
 
 // Handle processes HTTP connections
 func (h *HTTPHandler) Handle(conn net.Conn) error {
@@ -53,8 +61,13 @@ func (h *HTTPHandler) Handle(conn net.Conn) error {
 
 // HandleListener handles connections from a listener (for HTTPS CONNECT)
 func (h *HTTPHandler) HandleListener(ctx context.Context, listener net.Listener) error {
-	// Custom handler that includes EOF handling
-	handler := func(conn net.Conn) error {
+	handler := h.createConnectionHandler()
+	return common.HandleListenerLoop(ctx, listener, handler, h.log, "HTTP")
+}
+
+// createConnectionHandler creates a connection handler function with proper error handling
+func (h *HTTPHandler) createConnectionHandler() func(net.Conn) error {
+	return func(conn net.Conn) error {
 		h.log.Debug("incoming:", conn.RemoteAddr().String())
 		if err := h.Handle(conn); err != nil {
 			if errors.Is(err, io.EOF) {
@@ -65,8 +78,6 @@ func (h *HTTPHandler) HandleListener(ctx context.Context, listener net.Listener)
 		}
 		return nil
 	}
-
-	return common.HandleListenerLoop(ctx, listener, handler, h.log, "HTTP")
 }
 
 // handleHTTPSProxy handles HTTPS CONNECT requests for tunneling
@@ -111,45 +122,61 @@ func (h *HTTPHandler) handleHTTPSProxy(w http.ResponseWriter, r *http.Request) {
 
 // createServer creates an HTTP server with combined file serving and proxy functionality
 func (h *HTTPHandler) createServer() *http.Server {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Handle HTTPS CONNECT requests
-		if r.Method == "CONNECT" {
-			h.log.Info("HTTPS CONNECT request:", r.Host)
-			h.handleHTTPSProxy(w, r)
-			return
-		}
-
-		// Check if this is an HTTP proxy request (absolute URL)
-		if r.URL.IsAbs() {
-			h.log.Info("HTTP proxy request:", r.Method, r.URL.String())
-			h.handleProxy(w, r)
-			return
-		}
-
-		// Check for proxy-related headers
-		if r.Header.Get("Proxy-Connection") != "" || r.Header.Get("Proxy-Authorization") != "" {
-			h.log.Info("HTTP proxy request (headers):", r.Method, r.URL.String())
-			h.handleProxy(w, r)
-			return
-		}
-
-		// Regular HTTP request - handle file serving or return error
-		if h.serveDir != "" {
-			h.log.Info("HTTP file request:", r.Method, r.URL.Path)
-			fileServer := http.FileServer(http.Dir(h.serveDir))
-			fileServer.ServeHTTP(w, r)
-		} else {
-			h.log.Warn("HTTP request received but no serve directory specified")
-			http.Error(w, "File serving not enabled", http.StatusServiceUnavailable)
-		}
-	})
-
 	return &http.Server{
-		Handler: handler,
+		Handler: http.HandlerFunc(h.routeRequest),
+		// Timeouts commented out for compatibility
 		// ReadTimeout:  30 * time.Second,
 		// WriteTimeout: 30 * time.Second,
 		// IdleTimeout:  60 * time.Second,
 	}
+}
+
+// routeRequest routes HTTP requests to appropriate handlers based on request type
+func (h *HTTPHandler) routeRequest(w http.ResponseWriter, r *http.Request) {
+	// Handle HTTPS CONNECT requests for tunneling
+	if r.Method == "CONNECT" {
+		h.log.Info("HTTPS CONNECT request:", r.Host)
+		h.handleHTTPSProxy(w, r)
+		return
+	}
+
+	// Determine if this should be handled as a direct file request or proxy request
+	if h.shouldHandleAsDirectRequest(r) {
+		h.handleLocalFile(w, r)
+		return
+	}
+
+	// Handle as HTTP proxy request
+	h.log.Info("HTTP proxy request:", r.Method, r.URL.String())
+	h.handleProxy(w, r)
+}
+
+// shouldHandleAsDirectRequest determines if a request should be handled as a direct file request
+func (h *HTTPHandler) shouldHandleAsDirectRequest(r *http.Request) bool {
+	// Smart proxy detection: check if this should be handled as a direct request
+	// even if the URL is absolute (e.g., curl with http_proxy set)
+	if h.isDirectRequest(r) {
+		return true
+	}
+
+	// If URL is not absolute, it's definitely a direct request
+	if !r.URL.IsAbs() {
+		return true
+	}
+
+	// Check for proxy-related headers - if present, handle as proxy
+	if h.hasProxyHeaders(r) {
+		return false
+	}
+
+	// Default to direct request for non-absolute URLs
+	return !r.URL.IsAbs()
+}
+
+// hasProxyHeaders checks if the request contains proxy-specific headers
+func (h *HTTPHandler) hasProxyHeaders(r *http.Request) bool {
+	return r.Header.Get("Proxy-Connection") != "" || 
+		   r.Header.Get("Proxy-Authorization") != ""
 }
 
 // handleProxy handles HTTP proxy requests
@@ -206,6 +233,44 @@ func (h *HTTPHandler) handleProxy(w http.ResponseWriter, r *http.Request) {
 	// Copy status code and body
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
+}
+
+// isDirectRequest determines if a request should be handled as a direct file request
+// rather than a proxy request, even if the URL is absolute
+func (h *HTTPHandler) isDirectRequest(r *http.Request) bool {
+	if !r.URL.IsAbs() {
+		return true // Relative URLs are always direct requests
+	}
+
+	// If the request is for our server address, treat as direct request
+	return r.URL.Host == h.serverAddress
+}
+
+// handleLocalFile handles a request as a local file request, converting absolute URLs to relative paths
+func (h *HTTPHandler) handleLocalFile(w http.ResponseWriter, r *http.Request) {
+	var path string
+	if r.URL.IsAbs() {
+		// Extract path from absolute URL
+		path = r.URL.Path
+		h.log.Info("HTTP file request (absolute URL converted):", r.Method, path)
+	} else {
+		path = r.URL.Path
+		h.log.Info("HTTP file request:", r.Method, path)
+	}
+
+	if h.serveDir != "" {
+		// Create a new request with relative path for the file server
+		relativeReq := r.Clone(r.Context())
+		relativeReq.URL.Scheme = ""
+		relativeReq.URL.Host = ""
+		relativeReq.URL.Path = path
+
+		fileServer := http.FileServer(http.Dir(h.serveDir))
+		fileServer.ServeHTTP(w, relativeReq)
+	} else {
+		h.log.Warn("HTTP request received but no serve directory specified")
+		http.Error(w, "File serving not enabled", http.StatusServiceUnavailable)
+	}
 }
 
 // singleConnListener wraps net.Conn to implement net.Listener.

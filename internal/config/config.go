@@ -24,6 +24,17 @@ type Config struct {
 
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
+	if err := c.validateNetwork(); err != nil {
+		return err
+	}
+	if err := c.validateTiming(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateNetwork validates network-related configuration
+func (c *Config) validateNetwork() error {
 	// Validate interface address
 	if c.Iface != "" {
 		if ip := net.ParseIP(c.Iface); ip == nil {
@@ -36,11 +47,14 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid port: %s", c.Port)
 	}
 
-	// Validate sleep duration
+	return nil
+}
+
+// validateTiming validates timing-related configuration
+func (c *Config) validateTiming() error {
 	if c.Sleep < 0 {
 		return fmt.Errorf("sleep duration cannot be negative: %v", c.Sleep)
 	}
-
 	return nil
 }
 
@@ -54,9 +68,10 @@ func (c *Config) IsHTTPEnabled() bool {
 	return c.ServeDir != ""
 }
 
-// IsSSHEnabled returns true if SSH server is enabled
+// IsSSHEnabled returns true if SSH server should be enabled
+// SSH is always enabled but authentication depends on SSHPass being set
 func (c *Config) IsSSHEnabled() bool {
-	return true
+	return true // SSH server is always enabled for this application
 }
 
 

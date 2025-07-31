@@ -43,13 +43,7 @@ func NewShellHandler(
 	}
 }
 
-// Match checks if the connection data matches shell protocol (fallback)
-// NOTE: This method is not used in production - cmux handles protocol detection
-// It exists only for backward compatibility with tests
-func (h *ShellHandler) Match(data []byte) bool {
-	// Accept everything else as shell input
-	return true
-}
+
 
 // Match checks if the connection data matches shell protocol (fallback)
 // Handle processes shell connections
