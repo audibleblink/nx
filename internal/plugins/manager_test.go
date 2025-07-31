@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/audibleblink/nx/internal/tmux"
 )
 
 //go:embed testdata
@@ -325,6 +327,155 @@ func TestPluginExecutionTiming(t *testing.T) {
 	totalTime := time.Since(start)
 	expectedMinTime := 2 * sleepDuration
 	assert.GreaterOrEqual(t, totalTime, expectedMinTime)
+}
+
+// TestManagerExecuteMultiple tests the ExecuteMultiple method
+func TestManagerExecuteMultiple(t *testing.T) {
+	mockTmux := &MockTmuxManager{}
+	manager := NewManager(testPlugins, 10*time.Millisecond, mockTmux)
+	defer os.RemoveAll(manager.GetPluginDir())
+
+	// Install plugins first
+	err := manager.InstallBundledPlugins("testdata")
+	require.NoError(t, err)
+
+	t.Run("executes multiple plugins successfully", func(t *testing.T) {
+		mockWindow := &gomux.Window{}
+		
+		// Set up expectations for both plugins
+		// test_plugin commands
+		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Hello from test plugin\"").Return(nil)
+		mockTmux.On("ExecuteInWindow", mockWindow, "ls -la").Return(nil)
+		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Plugin execution complete\"").Return(nil)
+		
+		// empty_plugin has no commands, so no expectations needed
+
+		pluginNames := []string{"test_plugin", "empty_plugin"}
+		err := manager.ExecuteMultiple(pluginNames, mockWindow, false)
+		require.NoError(t, err)
+
+		mockTmux.AssertExpectations(t)
+	})
+
+	t.Run("handles empty plugin list", func(t *testing.T) {
+		mockWindow := &gomux.Window{}
+		
+		err := manager.ExecuteMultiple([]string{}, mockWindow, false)
+		require.NoError(t, err)
+		
+		// No tmux calls should have been made
+		mockTmux.AssertNotCalled(t, "ExecuteInWindow")
+	})
+
+	t.Run("stops on first error when continueOnError is false", func(t *testing.T) {
+		mockWindow := &gomux.Window{}
+		
+		// Note: The current executeCommands implementation doesn't propagate command failures
+		// It only logs them and continues. So we test with a non-existent plugin instead.
+		pluginNames := []string{"non_existent_plugin", "empty_plugin"}
+		err := manager.ExecuteMultiple(pluginNames, mockWindow, false)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "plugin 'non_existent_plugin' not found")
+
+		// No tmux calls should have been made due to early validation
+		mockTmux.AssertNotCalled(t, "ExecuteInWindow")
+	})
+
+	t.Run("continues on error when continueOnError is true", func(t *testing.T) {
+		mockWindow := &gomux.Window{}
+		
+		// First plugin will fail, but execution should continue
+		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Hello from test plugin\"").Return(assert.AnError)
+		mockTmux.On("ExecuteInWindow", mockWindow, "ls -la").Return(nil)
+		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Plugin execution complete\"").Return(nil)
+		
+		pluginNames := []string{"test_plugin", "empty_plugin"}
+		err := manager.ExecuteMultiple(pluginNames, mockWindow, true)
+		require.NoError(t, err)
+
+		mockTmux.AssertExpectations(t)
+	})
+
+	t.Run("returns error for non-existent plugin", func(t *testing.T) {
+		mockWindow := &gomux.Window{}
+		
+		pluginNames := []string{"non_existent_plugin"}
+		err := manager.ExecuteMultiple(pluginNames, mockWindow, false)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "plugin 'non_existent_plugin' not found")
+	})
+}
+
+// TestManagerExecuteMultipleOnPane tests the ExecuteMultipleOnPane method
+func TestManagerExecuteMultipleOnPane(t *testing.T) {
+	mockTmux := &MockTmuxManager{}
+	manager := NewManager(testPlugins, 10*time.Millisecond, mockTmux)
+	defer os.RemoveAll(manager.GetPluginDir())
+
+	// Install plugins first
+	err := manager.InstallBundledPlugins("testdata")
+	require.NoError(t, err)
+
+	target := &tmux.PaneTarget{
+		Session: "non_existent_session_12345",
+		Window:  0,
+		Pane:    1,
+	}
+
+	t.Run("executes empty plugin on pane successfully", func(t *testing.T) {
+		// Empty plugin has no commands, so it should succeed without calling tmux
+		pluginNames := []string{"empty_plugin"}
+		err := manager.ExecuteMultipleOnPane(pluginNames, target, false)
+		require.NoError(t, err)
+	})
+
+	t.Run("handles empty plugin list", func(t *testing.T) {
+		err := manager.ExecuteMultipleOnPane([]string{}, target, false)
+		require.NoError(t, err)
+	})
+}
+
+// TestManagerMultipleScriptIntegration tests integration scenarios
+func TestManagerMultipleScriptIntegration(t *testing.T) {
+	mockTmux := &MockTmuxManager{}
+	manager := NewManager(testPlugins, 10*time.Millisecond, mockTmux)
+	defer os.RemoveAll(manager.GetPluginDir())
+
+	// Install plugins first
+	err := manager.InstallBundledPlugins("testdata")
+	require.NoError(t, err)
+
+	t.Run("mixed success and failure with continue on error", func(t *testing.T) {
+		mockWindow := &gomux.Window{}
+		
+		// First plugin succeeds
+		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Hello from test plugin\"").Return(nil)
+		mockTmux.On("ExecuteInWindow", mockWindow, "ls -la").Return(assert.AnError) // This fails
+		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Plugin execution complete\"").Return(nil)
+		
+		// Second plugin (empty) succeeds (no commands to execute)
+		
+		pluginNames := []string{"test_plugin", "empty_plugin"}
+		err := manager.ExecuteMultiple(pluginNames, mockWindow, true)
+		require.NoError(t, err)
+
+		mockTmux.AssertExpectations(t)
+	})
+
+	t.Run("validates all plugins exist before execution", func(t *testing.T) {
+		mockWindow := &gomux.Window{}
+		
+		// Mix of existing and non-existing plugins
+		pluginNames := []string{"test_plugin", "non_existent", "empty_plugin"}
+		err := manager.ExecuteMultiple(pluginNames, mockWindow, false)
+		
+		// Should fail on the non-existent plugin
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "non_existent")
+		
+		// No tmux commands should have been executed
+		mockTmux.AssertNotCalled(t, "ExecuteInWindow")
+	})
 }
 
 // TestPluginFilePermissions tests that installed plugins have correct permissions

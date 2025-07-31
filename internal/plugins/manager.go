@@ -129,6 +129,78 @@ func (m *Manager) ExecuteOnPane(pluginName string, target *tmux.PaneTarget) erro
 	})
 }
 
+// ExecuteMultiple executes multiple plugins sequentially in the specified tmux window
+func (m *Manager) ExecuteMultiple(pluginNames []string, window *gomux.Window, continueOnError bool) error {
+	log := m.log.Add("ExecuteMultiple")
+	
+	if len(pluginNames) == 0 {
+		return nil
+	}
+	
+	// Validate all plugins exist before executing any
+	for _, pluginName := range pluginNames {
+		if !m.PluginExists(pluginName) {
+			return fmt.Errorf("plugin '%s' not found", pluginName)
+		}
+	}
+	
+	log.Infof("Executing %d plugin(s): %v", len(pluginNames), pluginNames)
+	
+	for i, pluginName := range pluginNames {
+		log.Infof("[%d/%d] Executing '%s'...", i+1, len(pluginNames), pluginName)
+		
+		if err := m.Execute(pluginName, window); err != nil {
+			if continueOnError {
+				log.Error(fmt.Sprintf("Plugin '%s' failed (continuing): %v", pluginName, err))
+				continue
+			} else {
+				return fmt.Errorf("plugin '%s' failed: %w", pluginName, err)
+			}
+		}
+		
+		log.Infof("[%d/%d] Plugin '%s' completed successfully", i+1, len(pluginNames), pluginName)
+	}
+	
+	log.Info("All plugins completed successfully")
+	return nil
+}
+
+// ExecuteMultipleOnPane executes multiple plugins sequentially on a specific tmux pane
+func (m *Manager) ExecuteMultipleOnPane(pluginNames []string, target *tmux.PaneTarget, continueOnError bool) error {
+	log := m.log.Add("ExecuteMultipleOnPane")
+	
+	if len(pluginNames) == 0 {
+		return nil
+	}
+	
+	// Validate all plugins exist before executing any
+	for _, pluginName := range pluginNames {
+		if !m.PluginExists(pluginName) {
+			return fmt.Errorf("plugin '%s' not found", pluginName)
+		}
+	}
+	
+	log.Infof("Executing %d plugin(s) on pane: %v", len(pluginNames), pluginNames)
+	
+	for i, pluginName := range pluginNames {
+		log.Infof("[%d/%d] Executing '%s'...", i+1, len(pluginNames), pluginName)
+		
+		if err := m.ExecuteOnPane(pluginName, target); err != nil {
+			if continueOnError {
+				log.Error(fmt.Sprintf("Plugin '%s' failed (continuing): %v", pluginName, err))
+				continue
+			} else {
+				return fmt.Errorf("plugin '%s' failed: %w", pluginName, err)
+			}
+		}
+		
+		log.Infof("[%d/%d] Plugin '%s' completed successfully", i+1, len(pluginNames), pluginName)
+	}
+	
+	log.Info("All plugins completed successfully")
+	return nil
+}
+
 // readPluginCommands reads and parses commands from a plugin file
 func (m *Manager) readPluginCommands(pluginName string) ([]string, error) {
 	pluginPath := filepath.Join(m.pluginDir, pluginName+".sh")

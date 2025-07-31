@@ -341,3 +341,231 @@ func TestConfigEdgeCases(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+// TestConfigGetExecScripts tests the GetExecScripts method for parsing comma-separated scripts
+func TestConfigGetExecScripts(t *testing.T) {
+	tests := []struct {
+		name     string
+		exec     string
+		expected []string
+	}{
+		{
+			name:     "empty exec field",
+			exec:     "",
+			expected: nil,
+		},
+		{
+			name:     "single script",
+			exec:     "auto",
+			expected: []string{"auto"},
+		},
+		{
+			name:     "multiple scripts",
+			exec:     "auto,utils,cleanup",
+			expected: []string{"auto", "utils", "cleanup"},
+		},
+		{
+			name:     "scripts with spaces",
+			exec:     "auto, utils, cleanup",
+			expected: []string{"auto", "utils", "cleanup"},
+		},
+		{
+			name:     "scripts with extra spaces",
+			exec:     "  auto  ,  utils  ,  cleanup  ",
+			expected: []string{"auto", "utils", "cleanup"},
+		},
+		{
+			name:     "scripts with empty entries",
+			exec:     "auto,,utils,",
+			expected: []string{"auto", "utils"},
+		},
+		{
+			name:     "single script with spaces",
+			exec:     "  auto  ",
+			expected: []string{"auto"},
+		},
+		{
+			name:     "only commas and spaces",
+			exec:     " , , , ",
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := Config{Exec: tt.exec}
+			result := config.GetExecScripts()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestConfigHasExecScripts tests the HasExecScripts helper method
+func TestConfigHasExecScripts(t *testing.T) {
+	tests := []struct {
+		name     string
+		exec     string
+		expected bool
+	}{
+		{
+			name:     "empty exec field",
+			exec:     "",
+			expected: false,
+		},
+		{
+			name:     "single script",
+			exec:     "auto",
+			expected: true,
+		},
+		{
+			name:     "multiple scripts",
+			exec:     "auto,utils,cleanup",
+			expected: true,
+		},
+		{
+			name:     "only spaces and commas",
+			exec:     " , , ",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := Config{Exec: tt.exec}
+			result := config.HasExecScripts()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestConfigScriptValidation tests the new script-related validation
+func TestConfigScriptValidation(t *testing.T) {
+	tests := []struct {
+		name          string
+		config        Config
+		wantErr       bool
+		errMsg        string
+	}{
+		{
+			name: "valid script timeout",
+			config: Config{
+				Iface:         "0.0.0.0",
+				Port:          "8443",
+				ScriptTimeout: 30 * time.Second,
+			},
+			wantErr: false,
+		},
+		{
+			name: "zero script timeout (valid)",
+			config: Config{
+				Iface:         "0.0.0.0",
+				Port:          "8443",
+				ScriptTimeout: 0,
+			},
+			wantErr: false,
+		},
+		{
+			name: "negative script timeout",
+			config: Config{
+				Iface:         "0.0.0.0",
+				Port:          "8443",
+				ScriptTimeout: -1 * time.Second,
+			},
+			wantErr: true,
+			errMsg:  "script timeout cannot be negative",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestExecCommandGetScripts tests the GetScripts method for ExecCommand
+func TestExecCommandGetScripts(t *testing.T) {
+	tests := []struct {
+		name     string
+		scripts  string
+		expected []string
+	}{
+		{
+			name:     "empty scripts field",
+			scripts:  "",
+			expected: nil,
+		},
+		{
+			name:     "single script",
+			scripts:  "auto",
+			expected: []string{"auto"},
+		},
+		{
+			name:     "multiple scripts",
+			scripts:  "auto,utils,cleanup",
+			expected: []string{"auto", "utils", "cleanup"},
+		},
+		{
+			name:     "scripts with spaces",
+			scripts:  "auto, utils, cleanup",
+			expected: []string{"auto", "utils", "cleanup"},
+		},
+		{
+			name:     "scripts with extra spaces",
+			scripts:  "  auto  ,  utils  ,  cleanup  ",
+			expected: []string{"auto", "utils", "cleanup"},
+		},
+		{
+			name:     "scripts with empty entries",
+			scripts:  "auto,,utils,",
+			expected: []string{"auto", "utils"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			execCmd := ExecCommand{}
+			execCmd.Args.Scripts = tt.scripts
+			result := execCmd.GetScripts()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestConfigBackwardCompatibility tests that existing single script usage still works
+func TestConfigBackwardCompatibility(t *testing.T) {
+	t.Run("single script behaves like before", func(t *testing.T) {
+		config := Config{Exec: "auto"}
+		scripts := config.GetExecScripts()
+		
+		// Should return a slice with one element
+		require.Len(t, scripts, 1)
+		assert.Equal(t, "auto", scripts[0])
+		assert.True(t, config.HasExecScripts())
+	})
+
+	t.Run("empty exec behaves like before", func(t *testing.T) {
+		config := Config{Exec: ""}
+		scripts := config.GetExecScripts()
+		
+		// Should return nil (no scripts)
+		assert.Nil(t, scripts)
+		assert.False(t, config.HasExecScripts())
+	})
+
+	t.Run("exec command single script", func(t *testing.T) {
+		execCmd := ExecCommand{}
+		execCmd.Args.Scripts = "cleanup"
+		scripts := execCmd.GetScripts()
+		
+		// Should return a slice with one element
+		require.Len(t, scripts, 1)
+		assert.Equal(t, "cleanup", scripts[0])
+	})
+}

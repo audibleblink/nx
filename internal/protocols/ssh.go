@@ -35,8 +35,6 @@ func NewSSHHandler(password string) (*SSHHandler, error) {
 	return handler, nil
 }
 
-
-
 // Handle processes SSH connections
 func (h *SSHHandler) Handle(conn net.Conn) error {
 	h.server.HandleConn(conn)
@@ -49,15 +47,12 @@ func (h *SSHHandler) createServer() (*ssh.Server, error) {
 
 	server := &ssh.Server{
 		Handler: func(s ssh.Session) {
-			io.WriteString(s, "nx SSH tunneling active\\n")
+			io.WriteString(s, "nx SSH tunneling active\n")
 			<-s.Context().Done()
 		},
 
 		PasswordHandler: func(ctx ssh.Context, pass string) bool {
-			if h.password == "" {
-				return true // No authentication required
-			}
-			return pass == h.password
+			return h.password == "" || pass == h.password
 		},
 
 		LocalPortForwardingCallback: func(ctx ssh.Context, dhost string, dport uint32) bool {
@@ -76,7 +71,17 @@ func (h *SSHHandler) createServer() (*ssh.Server, error) {
 		},
 	}
 
-	// Generate host key
+	hostKey, err := h.generateHostKey()
+	if err != nil {
+		return nil, err
+	}
+
+	server.AddHostKey(hostKey)
+	return server, nil
+}
+
+// generateHostKey generates and returns an SSH host key
+func (h *SSHHandler) generateHostKey() (ssh.Signer, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate host key: %w", err)
@@ -87,7 +92,5 @@ func (h *SSHHandler) createServer() (*ssh.Server, error) {
 		return nil, fmt.Errorf("failed to create signer: %w", err)
 	}
 
-	server.AddHostKey(signer)
-
-	return server, nil
+	return signer, nil
 }

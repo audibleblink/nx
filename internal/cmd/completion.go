@@ -71,11 +71,11 @@ func init() {
 	// Set up custom completions using simplified functions
 	execCmd.RegisterFlagCompletionFunc("on", completeTargets)
 	execCmd.ValidArgsFunction = completePlugins
-	serverCmd.RegisterFlagCompletionFunc("serve-dir", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	serveCmd.RegisterFlagCompletionFunc("serve-dir", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return nil, cobra.ShellCompDirectiveFilterDirs
 	})
-	serverCmd.RegisterFlagCompletionFunc("exec", completePlugins)
-	serverCmd.RegisterFlagCompletionFunc("target", completeTargets)
+	serveCmd.RegisterFlagCompletionFunc("exec", completePlugins)
+	serveCmd.RegisterFlagCompletionFunc("target", completeTargets)
 }
 
 // completeTargets provides completion for tmux targets
