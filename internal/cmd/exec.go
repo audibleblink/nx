@@ -49,6 +49,10 @@ func init() {
 	execCmd.Flags().Bool("continue-on-error", false, "Continue executing remaining scripts if one fails")
 	execCmd.Flags().Duration("script-timeout", 30000000000, "Timeout per script execution") // 30s in nanoseconds
 	execCmd.MarkFlagRequired("on")
+	
+	// Set up flag completions
+	execCmd.RegisterFlagCompletionFunc("on", completeTargets)
+	execCmd.ValidArgsFunction = completePlugins
 }
 
 // executeExecCommand runs the exec command with the given configuration
