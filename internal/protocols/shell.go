@@ -156,7 +156,7 @@ func (h *ShellHandler) executePlugins(window *gomux.Window) {
 	}
 
 	if len(scripts) > 0 {
-		if err := h.pluginManager.ExecuteMultiple(scripts, window, h.config.ContinueOnError); err != nil {
+		if err := h.pluginManager.ExecuteMultiple(scripts, window, false); err != nil {
 			h.log.Error("plugin execution:", err)
 		}
 	}

@@ -253,6 +253,106 @@ func TestHTTPHandlerConcurrency(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerPut(t *testing.T) {
+	// Skip if existing handler tests are skipped due to singleConnListener limitations
+	// We'll perform direct HTTP requests against an in-memory listener if feasible.
+	// For simplicity, use net.Pipe pattern similar to existing tests.
+
+	// Create temp dir
+	tempDir, err := os.MkdirTemp("", "nx-http-put")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	h := NewHTTPHandler(tempDir, "localhost:8443")
+
+	writeAndRead := func(req string, body []byte) (string, string) {
+		server, client := net.Pipe()
+		defer server.Close()
+		defer client.Close()
+
+		respCh := make(chan struct{ status string; raw string })
+		go func() {
+			defer close(respCh)
+			go h.Handle(server)
+			// Write request then read response
+			client.Write([]byte(req))
+			if len(body) > 0 {
+				client.Write(body)
+			}
+			reader := bufio.NewReader(client)
+			statusLine, _ := reader.ReadString('\n')
+			var raw strings.Builder
+			raw.WriteString(statusLine)
+			for {
+				line, _ := reader.ReadString('\n')
+				if line == "\r\n" || line == "" {
+					break
+				}
+				raw.WriteString(line)
+			}
+			respCh <- struct{ status string; raw string }{status: statusLine, raw: raw.String()}
+		}()
+		resp := <-respCh
+		return resp.status, resp.raw
+	}
+
+	t.Run("creates new file (201)", func(t *testing.T) {
+		content := []byte("hello")
+		req := fmt.Sprintf("PUT /new.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: %d\r\n\r\n", len(content))
+		status, _ := writeAndRead(req, content)
+		assert.Contains(t, status, "201")
+		data, err := os.ReadFile(filepath.Join(tempDir, "new.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, content, data)
+	})
+
+	t.Run("overwrites existing file (200)", func(t *testing.T) {
+		orig := filepath.Join(tempDir, "overwrite.txt")
+		require.NoError(t, os.WriteFile(orig, []byte("old"), 0644))
+		content := []byte("newdata")
+		req := fmt.Sprintf("PUT /overwrite.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: %d\r\n\r\n", len(content))
+		status, _ := writeAndRead(req, content)
+		assert.Contains(t, status, "200")
+		data, err := os.ReadFile(orig)
+		require.NoError(t, err)
+		assert.Equal(t, content, data)
+	})
+
+	t.Run("empty path -> 400", func(t *testing.T) {
+		req := "PUT / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
+		status, _ := writeAndRead(req, nil)
+		assert.Contains(t, status, "400")
+	})
+
+	t.Run("path traversal -> 403", func(t *testing.T) {
+		req := "PUT /../secret HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
+		status, _ := writeAndRead(req, nil)
+		assert.Contains(t, status, "403")
+	})
+
+	t.Run("missing parent directory -> 400", func(t *testing.T) {
+		content := []byte("data")
+		req := fmt.Sprintf("PUT /missingdir/file.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: %d\r\n\r\n", len(content))
+		status, _ := writeAndRead(req, content)
+		assert.Contains(t, status, "400")
+	})
+
+	t.Run("existing directory path -> 409", func(t *testing.T) {
+		dirPath := filepath.Join(tempDir, "adir")
+		require.NoError(t, os.Mkdir(dirPath, 0755))
+		req := "PUT /adir HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
+		status, _ := writeAndRead(req, nil)
+		assert.Contains(t, status, "409")
+	})
+
+	t.Run("missing content-length -> 400", func(t *testing.T) {
+		// Omit Content-Length header
+		req := "PUT /nolength.txt HTTP/1.1\r\nHost: localhost\r\n\r\n"
+		status, _ := writeAndRead(req, []byte("abc"))
+		assert.Contains(t, status, "400")
+	})
+}
+
 
 
 

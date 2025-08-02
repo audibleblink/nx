@@ -24,8 +24,6 @@ The server provides:
 		cfg := &config.Config{}
 		cfg.Auto, _ = cmd.Flags().GetBool("auto")
 		cfg.Exec, _ = cmd.Flags().GetString("exec")
-		cfg.ContinueOnError, _ = cmd.Flags().GetBool("continue-on-error")
-		cfg.ScriptTimeout, _ = cmd.Flags().GetDuration("script-timeout")
 		cfg.InstallPlugins = false
 		cfg.Iface, _ = cmd.Flags().GetString("host")
 		cfg.Port, _ = cmd.Flags().GetString("port")
@@ -43,8 +41,6 @@ func init() {
 	// Define flags directly without global variables
 	serveCmd.Flags().Bool("auto", false, "Attempt to auto-upgrade to a tty (uses --exec auto)")
 	serveCmd.Flags().String("exec", "", "Execute plugin scripts on connection (comma-separated)")
-	serveCmd.Flags().Bool("continue-on-error", false, "Continue executing remaining scripts if one fails")
-	serveCmd.Flags().Duration("script-timeout", 30000000000, "Timeout per script execution") // 30s in nanoseconds
 	serveCmd.Flags().StringP("host", "i", "0.0.0.0", "Interface address on which to bind")
 	serveCmd.Flags().StringP("port", "p", "8443", "Port on which to bind")
 	serveCmd.Flags().StringP("serve-dir", "d", "", "Directory to serve files from over HTTP")
