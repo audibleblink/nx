@@ -438,56 +438,7 @@ func TestConfigHasExecScripts(t *testing.T) {
 	}
 }
 
-// TestConfigScriptValidation tests the new script-related validation
-func TestConfigScriptValidation(t *testing.T) {
-	tests := []struct {
-		name          string
-		config        Config
-		wantErr       bool
-		errMsg        string
-	}{
-		{
-			name: "valid script timeout",
-			config: Config{
-				Iface:         "0.0.0.0",
-				Port:          "8443",
-				ScriptTimeout: 30 * time.Second,
-			},
-			wantErr: false,
-		},
-		{
-			name: "zero script timeout (valid)",
-			config: Config{
-				Iface:         "0.0.0.0",
-				Port:          "8443",
-				ScriptTimeout: 0,
-			},
-			wantErr: false,
-		},
-		{
-			name: "negative script timeout",
-			config: Config{
-				Iface:         "0.0.0.0",
-				Port:          "8443",
-				ScriptTimeout: -1 * time.Second,
-			},
-			wantErr: true,
-			errMsg:  "script timeout cannot be negative",
-		},
-	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.Validate()
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
 
 // TestExecCommandGetScripts tests the GetScripts method for ExecCommand
 func TestExecCommandGetScripts(t *testing.T) {

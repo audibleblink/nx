@@ -13,8 +13,6 @@ import (
 type Config struct {
 	Auto             bool          `long:"auto"              description:"Attempt to auto-upgrade to a tty (uses --exec auto)"`
 	Exec             string        `long:"exec"              description:"Execute plugin scripts on connection (comma-separated)"`
-	ContinueOnError  bool          `long:"continue-on-error" description:"Continue executing remaining scripts if one fails"`
-	ScriptTimeout    time.Duration `long:"script-timeout"    description:"Timeout per script execution" default:"30s"`
 	InstallPlugins   bool          `long:"install-plugins"   description:"Install bundled plugins to config directory"`
 	Iface            string        `long:"host"              description:"Interface address on which to bind"                  short:"i" default:"0.0.0.0" required:"true"`
 	Port             string        `long:"port"              description:"Port on which to bind"                               short:"p" default:"8443"    required:"true"`
@@ -66,9 +64,6 @@ func (c *Config) validateTiming() error {
 
 // validateScripts validates script-related configuration
 func (c *Config) validateScripts() error {
-	if c.ScriptTimeout < 0 {
-		return fmt.Errorf("script timeout cannot be negative: %v", c.ScriptTimeout)
-	}
 	return nil
 }
 
@@ -128,8 +123,6 @@ type ExecCommand struct {
 	} `positional-args:"yes" required:"yes"`
 	On              string        `                      required:"true" long:"on"              description:"Target pane using tmux notation (session:window.pane)"`
 	DryRun          bool          `                                      long:"dry-run"         description:"Preview execution without running"`
-	ContinueOnError bool          `                                      long:"continue-on-error" description:"Continue executing remaining scripts if one fails"`
-	ScriptTimeout   time.Duration `                                      long:"script-timeout"  description:"Timeout per script execution" default:"30s"`
 }
 
 // Commands represents the available subcommands

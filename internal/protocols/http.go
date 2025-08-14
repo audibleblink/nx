@@ -6,6 +6,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/audibleblink/logerr"
@@ -52,6 +55,11 @@ func (h *HTTPHandler) routeRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "CONNECT" {
 		h.log.Info("HTTPS CONNECT request:", r.Host)
 		h.handleHTTPSProxy(w, r)
+		return
+	}
+
+	if r.Method == "PUT" {
+		h.handlePut(w, r)
 		return
 	}
 
@@ -186,6 +194,84 @@ func (h *HTTPHandler) handleLocalFile(w http.ResponseWriter, r *http.Request) {
 
 	fileServer := http.FileServer(http.Dir(h.serveDir))
 	fileServer.ServeHTTP(w, relativeReq)
+}
+
+// handlePut handles HTTP PUT requests for file uploads
+func (h *HTTPHandler) handlePut(w http.ResponseWriter, r *http.Request) {
+	// Enforce Content-Length presence (unless chunked transfer automatically handled)
+	if r.ContentLength < 0 {
+		http.Error(w, "Content-Length required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate and normalize path
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	if path == "" {
+		http.Error(w, "Empty filename not allowed", http.StatusBadRequest)
+		return
+	}
+
+	// Clean path and check for traversal attempts
+	cleanPath := filepath.Clean(path)
+	if cleanPath == "." { // root only
+		http.Error(w, "Empty filename not allowed", http.StatusBadRequest)
+		return
+	}
+	// Reject any attempt that would escape root: contains ".." segment or becomes absolute
+	if strings.Contains(cleanPath, "..") || strings.HasPrefix(cleanPath, "..") ||
+		strings.HasPrefix(cleanPath, string(os.PathSeparator)) {
+		http.Error(w, "Path traversal not allowed", http.StatusForbidden)
+		return
+	}
+
+	// Determine target file path within serveDir
+	targetPath := filepath.Join(h.serveDir, cleanPath)
+
+	// Check if target exists and is a directory
+	if info, err := os.Stat(targetPath); err == nil && info.IsDir() {
+		http.Error(w, "Cannot overwrite directory", http.StatusConflict)
+		return
+	}
+
+	// Ensure parent directory exists
+	parentDir := filepath.Dir(targetPath)
+	if _, err := os.Stat(parentDir); os.IsNotExist(err) {
+		http.Error(w, "Parent directory does not exist", http.StatusBadRequest)
+		return
+	}
+
+	// Determine if file existed prior to write
+	if _, err := os.Stat(targetPath); err != nil && !os.IsNotExist(err) {
+		http.Error(w, "Failed to stat file", http.StatusInternalServerError)
+		return
+	}
+	filePreviouslyExisted := false
+	if _, err := os.Stat(targetPath); err == nil {
+		filePreviouslyExisted = true
+	}
+
+	// Create/truncate the file
+	file, err := os.Create(targetPath)
+	if err != nil {
+		h.log.Error("Failed to create file:", err)
+		http.Error(w, "Failed to create file", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	// Stream copy request body to file
+	if _, err = io.Copy(file, r.Body); err != nil {
+		h.log.Error("Failed to write file:", err)
+		http.Error(w, "Failed to write file", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with appropriate status
+	if filePreviouslyExisted {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusCreated)
+	}
 }
 
 // singleConnListener wraps net.Conn to implement net.Listener

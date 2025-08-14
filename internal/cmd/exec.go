@@ -26,8 +26,7 @@ The target pane is specified using tmux notation: session:window.pane
 
 Examples:
   nx exec auto --on nx:0.1
-  nx exec auto,utils,cleanup --on myapp:1.0 --dry-run
-  nx exec "script1, script2, script3" --on nx:0.1 --continue-on-error`,
+  nx exec auto,utils,cleanup --on myapp:1.0 --dry-run`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		// Create exec config from flags and args using cobra's built-in flag access
@@ -35,8 +34,6 @@ Examples:
 		cfg.Args.Scripts = args[0]
 		cfg.On, _ = cmd.Flags().GetString("on")
 		cfg.DryRun, _ = cmd.Flags().GetBool("dry-run")
-		cfg.ContinueOnError, _ = cmd.Flags().GetBool("continue-on-error")
-		cfg.ScriptTimeout, _ = cmd.Flags().GetDuration("script-timeout")
 
 		executeExecCommand(cfg)
 	},
@@ -46,9 +43,11 @@ func init() {
 	// Define flags directly without global variables
 	execCmd.Flags().String("on", "", "Target pane using tmux notation (session:window.pane)")
 	execCmd.Flags().Bool("dry-run", false, "Preview execution without running")
-	execCmd.Flags().Bool("continue-on-error", false, "Continue executing remaining scripts if one fails")
-	execCmd.Flags().Duration("script-timeout", 30000000000, "Timeout per script execution") // 30s in nanoseconds
 	execCmd.MarkFlagRequired("on")
+	
+	// Set up flag completions
+	execCmd.RegisterFlagCompletionFunc("on", completeTargets)
+	execCmd.ValidArgsFunction = completePlugins
 }
 
 // executeExecCommand runs the exec command with the given configuration
@@ -103,7 +102,7 @@ func executeExecCommand(cfg *config.ExecCommand) {
 	// Execute scripts sequentially
 	logerr.Info(fmt.Sprintf("Running %d script(s) on %s...", len(scripts), cfg.On))
 	
-	if err := managers.Plugin.ExecuteMultipleOnPane(scripts, target, cfg.ContinueOnError); err != nil {
+	if err := managers.Plugin.ExecuteMultipleOnPane(scripts, target, false); err != nil {
 		logerr.Fatal("Failed to execute scripts:", err)
 	}
 	
