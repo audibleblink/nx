@@ -7,12 +7,14 @@ on:
 jobs:
   opencode:
     if: |
-      contains(github.event.comment.body, '/oc') ||
-      contains(github.event.comment.body, '/opencode')
+      contains(github.event.comment.body, ' /oc') ||
+      contains(github.event.comment.body, ' /opencode')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,6 +22,6 @@ jobs:
       - name: Run opencode
         uses: sst/opencode/github@latest
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         with:
-          model: anthropic/claude-sonnet-4-20250514
+          model: opencode/sonic
