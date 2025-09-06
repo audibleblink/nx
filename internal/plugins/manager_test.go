@@ -97,7 +97,7 @@ func TestManagerInstallBundledPlugins(t *testing.T) {
 		testPluginPath := filepath.Join(pluginDir, "test_plugin.sh")
 		info, err := os.Stat(testPluginPath)
 		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0755), info.Mode())
+		assert.Equal(t, os.FileMode(0o755), info.Mode())
 	})
 
 	t.Run("skips existing plugins", func(t *testing.T) {
@@ -215,7 +215,7 @@ func TestManagerListPlugins(t *testing.T) {
 
 		// Ensure the plugin directory is empty by creating a fresh one
 		os.RemoveAll(emptyManager.GetPluginDir())
-		os.MkdirAll(emptyManager.GetPluginDir(), 0755)
+		os.MkdirAll(emptyManager.GetPluginDir(), 0o755)
 
 		plugins, err := emptyManager.ListPlugins()
 		require.NoError(t, err)
@@ -234,12 +234,12 @@ func TestManagerListPlugins(t *testing.T) {
 		// Create a non-shell file
 		pluginDir := testManager.GetPluginDir()
 		nonShellFile := filepath.Join(pluginDir, "readme.txt")
-		err = os.WriteFile(nonShellFile, []byte("This is not a plugin"), 0644)
+		err = os.WriteFile(nonShellFile, []byte("This is not a plugin"), 0o644)
 		require.NoError(t, err)
 
 		// Create a directory
 		subDir := filepath.Join(pluginDir, "subdir")
-		err = os.Mkdir(subDir, 0755)
+		err = os.Mkdir(subDir, 0o755)
 		require.NoError(t, err)
 
 		plugins, err := testManager.ListPlugins()
@@ -341,13 +341,13 @@ func TestManagerExecuteMultiple(t *testing.T) {
 
 	t.Run("executes multiple plugins successfully", func(t *testing.T) {
 		mockWindow := &gomux.Window{}
-		
+
 		// Set up expectations for both plugins
 		// test_plugin commands
 		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Hello from test plugin\"").Return(nil)
 		mockTmux.On("ExecuteInWindow", mockWindow, "ls -la").Return(nil)
 		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Plugin execution complete\"").Return(nil)
-		
+
 		// empty_plugin has no commands, so no expectations needed
 
 		pluginNames := []string{"test_plugin", "empty_plugin"}
@@ -359,17 +359,17 @@ func TestManagerExecuteMultiple(t *testing.T) {
 
 	t.Run("handles empty plugin list", func(t *testing.T) {
 		mockWindow := &gomux.Window{}
-		
+
 		err := manager.ExecuteMultiple([]string{}, mockWindow, false)
 		require.NoError(t, err)
-		
+
 		// No tmux calls should have been made
 		mockTmux.AssertNotCalled(t, "ExecuteInWindow")
 	})
 
 	t.Run("stops on first error when continueOnError is false", func(t *testing.T) {
 		mockWindow := &gomux.Window{}
-		
+
 		// Note: The current executeCommands implementation doesn't propagate command failures
 		// It only logs them and continues. So we test with a non-existent plugin instead.
 		pluginNames := []string{"non_existent_plugin", "empty_plugin"}
@@ -383,12 +383,13 @@ func TestManagerExecuteMultiple(t *testing.T) {
 
 	t.Run("continues on error when continueOnError is true", func(t *testing.T) {
 		mockWindow := &gomux.Window{}
-		
+
 		// First plugin will fail, but execution should continue
-		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Hello from test plugin\"").Return(assert.AnError)
+		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Hello from test plugin\"").
+			Return(assert.AnError)
 		mockTmux.On("ExecuteInWindow", mockWindow, "ls -la").Return(nil)
 		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Plugin execution complete\"").Return(nil)
-		
+
 		pluginNames := []string{"test_plugin", "empty_plugin"}
 		err := manager.ExecuteMultiple(pluginNames, mockWindow, true)
 		require.NoError(t, err)
@@ -398,7 +399,7 @@ func TestManagerExecuteMultiple(t *testing.T) {
 
 	t.Run("returns error for non-existent plugin", func(t *testing.T) {
 		mockWindow := &gomux.Window{}
-		
+
 		pluginNames := []string{"non_existent_plugin"}
 		err := manager.ExecuteMultiple(pluginNames, mockWindow, false)
 		require.Error(t, err)
@@ -447,14 +448,14 @@ func TestManagerMultipleScriptIntegration(t *testing.T) {
 
 	t.Run("mixed success and failure with continue on error", func(t *testing.T) {
 		mockWindow := &gomux.Window{}
-		
+
 		// First plugin succeeds
 		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Hello from test plugin\"").Return(nil)
 		mockTmux.On("ExecuteInWindow", mockWindow, "ls -la").Return(assert.AnError) // This fails
 		mockTmux.On("ExecuteInWindow", mockWindow, "echo \"Plugin execution complete\"").Return(nil)
-		
+
 		// Second plugin (empty) succeeds (no commands to execute)
-		
+
 		pluginNames := []string{"test_plugin", "empty_plugin"}
 		err := manager.ExecuteMultiple(pluginNames, mockWindow, true)
 		require.NoError(t, err)
@@ -464,15 +465,15 @@ func TestManagerMultipleScriptIntegration(t *testing.T) {
 
 	t.Run("validates all plugins exist before execution", func(t *testing.T) {
 		mockWindow := &gomux.Window{}
-		
+
 		// Mix of existing and non-existing plugins
 		pluginNames := []string{"test_plugin", "non_existent", "empty_plugin"}
 		err := manager.ExecuteMultiple(pluginNames, mockWindow, false)
-		
+
 		// Should fail on the non-existent plugin
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "non_existent")
-		
+
 		// No tmux commands should have been executed
 		mockTmux.AssertNotCalled(t, "ExecuteInWindow")
 	})
@@ -492,7 +493,7 @@ func TestPluginFilePermissions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should be executable
-	assert.Equal(t, os.FileMode(0755), info.Mode())
+	assert.Equal(t, os.FileMode(0o755), info.Mode())
 }
 
 // TestConcurrentPluginOperations tests that plugin operations are thread-safe
