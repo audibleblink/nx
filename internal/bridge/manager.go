@@ -1,4 +1,4 @@
-// Package pty provides a PTY (pseudo-terminal) connection management system
+// Package bridge provides a PTY (pseudo-terminal) connection management system
 // that replaces the previous socat dependency. It enables bidirectional
 // communication between stdin/stdout and Unix domain sockets through
 // managed sessions with proper resource cleanup and error handling.
