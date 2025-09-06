@@ -59,7 +59,7 @@ func TestManagerGenerateTempFilename(t *testing.T) {
 
 	t.Run("multiple calls generate different names", func(t *testing.T) {
 		filenames := make(map[string]bool)
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			filename, err := manager.GenerateTempFilename()
 			require.NoError(t, err)
 			assert.False(t, filenames[filename], "filename %s was generated twice", filename)
@@ -354,7 +354,7 @@ func TestConcurrentSocketOperations(t *testing.T) {
 	results := make(chan error, numOperations)
 
 	// Run multiple socket operations concurrently
-	for i := 0; i < numOperations; i++ {
+	for range numOperations {
 		go func() {
 			socketPath, err := manager.GenerateTempFilename()
 			if err != nil {
@@ -373,7 +373,7 @@ func TestConcurrentSocketOperations(t *testing.T) {
 	}
 
 	// Wait for all operations to complete
-	for i := 0; i < numOperations; i++ {
+	for range numOperations {
 		select {
 		case err := <-results:
 			assert.NoError(t, err)

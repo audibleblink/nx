@@ -48,11 +48,14 @@ func init() {
 	serveCmd.Flags().Duration("sleep", DefaultSleep, "adjust if --auto is failing")
 	serveCmd.Flags().BoolP("verbose", "v", false, "Debug logging")
 	serveCmd.Flags().StringP("ssh-pass", "s", "", "SSH password (empty = no auth)")
-	
+
 	// Set up flag completions
-	serveCmd.RegisterFlagCompletionFunc("serve-dir", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return nil, cobra.ShellCompDirectiveFilterDirs
-	})
+	serveCmd.RegisterFlagCompletionFunc(
+		"serve-dir",
+		func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return nil, cobra.ShellCompDirectiveFilterDirs
+		},
+	)
 	serveCmd.RegisterFlagCompletionFunc("exec", completePlugins)
 	serveCmd.RegisterFlagCompletionFunc("target", completeTargets)
 }

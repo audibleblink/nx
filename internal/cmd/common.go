@@ -24,7 +24,11 @@ type Managers struct {
 }
 
 // NewManagers creates a new set of managers with common defaults
-func NewManagers(sessionName string, sleep time.Duration, bundledPlugins embed.FS) (*Managers, error) {
+func NewManagers(
+	sessionName string,
+	sleep time.Duration,
+	bundledPlugins embed.FS,
+) (*Managers, error) {
 	if sessionName == "" {
 		sessionName = DefaultSessionName
 	}

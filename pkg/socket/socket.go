@@ -21,7 +21,7 @@ type Manager struct {
 func NewManager() *Manager {
 	socketDir := filepath.Join(xdg.RuntimeDir, "nx")
 	// Ensure socket directory exists
-	os.MkdirAll(socketDir, 0755)
+	os.MkdirAll(socketDir, 0o755)
 
 	return &Manager{
 		socketDir: socketDir,
@@ -53,7 +53,11 @@ func (m *Manager) CreateUnixListener(socketPath string) (net.Listener, error) {
 }
 
 // BridgeConnections bridges a TCP connection to a Unix domain socket
-func (m *Manager) BridgeConnections(ctx context.Context, tcpConn net.Conn, unixListener net.Listener) error {
+func (m *Manager) BridgeConnections(
+	ctx context.Context,
+	tcpConn net.Conn,
+	unixListener net.Listener,
+) error {
 	log := logerr.Add("BridgeConnections")
 	defer unixListener.Close()
 

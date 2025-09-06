@@ -44,7 +44,7 @@ func init() {
 	execCmd.Flags().String("on", "", "Target pane using tmux notation (session:window.pane)")
 	execCmd.Flags().Bool("dry-run", false, "Preview execution without running")
 	execCmd.MarkFlagRequired("on")
-	
+
 	// Set up flag completions
 	execCmd.RegisterFlagCompletionFunc("on", completeTargets)
 	execCmd.ValidArgsFunction = completePlugins
@@ -101,39 +101,21 @@ func executeExecCommand(cfg *config.ExecCommand) {
 
 	// Execute scripts sequentially
 	logerr.Info(fmt.Sprintf("Running %d script(s) on %s...", len(scripts), cfg.On))
-	
+
 	if err := managers.Plugin.ExecuteMultipleOnPane(scripts, target, false); err != nil {
 		logerr.Fatal("Failed to execute scripts:", err)
 	}
-	
+
 	logerr.Info("All scripts completed successfully")
-}
-
-// showDryRun displays what would be executed in dry-run mode
-func showDryRun(script, target string, pluginManager *plugins.Manager) {
-	logerr.Info(fmt.Sprintf("Would run '%s' on %s:", script, target))
-
-	pluginPath := filepath.Join(pluginManager.GetPluginDir(), script+".sh")
-	content, err := os.ReadFile(pluginPath)
-	if err != nil {
-		logerr.Fatal("Failed to read plugin file:", err)
-	}
-
-	for _, line := range strings.Split(string(content), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "#") {
-			logerr.Info("  " + line)
-		}
-	}
 }
 
 // showDryRunMultiple displays what would be executed for multiple scripts in dry-run mode
 func showDryRunMultiple(scripts []string, target string, pluginManager *plugins.Manager) {
 	logerr.Info(fmt.Sprintf("Would run %d script(s) on %s:", len(scripts), target))
-	
+
 	for i, script := range scripts {
 		logerr.Info(fmt.Sprintf("[%d/%d] Script '%s':", i+1, len(scripts), script))
-		
+
 		pluginPath := filepath.Join(pluginManager.GetPluginDir(), script+".sh")
 		content, err := os.ReadFile(pluginPath)
 		if err != nil {
@@ -141,13 +123,13 @@ func showDryRunMultiple(scripts []string, target string, pluginManager *plugins.
 			continue
 		}
 
-		for _, line := range strings.Split(string(content), "\n") {
+		for line := range strings.SplitSeq(string(content), "\n") {
 			line = strings.TrimSpace(line)
 			if line != "" && !strings.HasPrefix(line, "#") {
 				logerr.Info("    " + line)
 			}
 		}
-		
+
 		if i < len(scripts)-1 {
 			logerr.Info("") // Add spacing between scripts
 		}

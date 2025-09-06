@@ -120,16 +120,16 @@ func (h *ShellHandler) createUnixSocket() (string, net.Listener, error) {
 	return socketFile, unixListener, nil
 }
 
-// createTmuxWindow creates a tmux window and executes the socat command
+// createTmuxWindow creates a tmux window and executes the bridge command
 func (h *ShellHandler) createTmuxWindow(socketFile string, conn net.Conn) (*gomux.Window, error) {
 	window, err := h.tmuxManager.CreateWindow(socketFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tmux window: %w", err)
 	}
 
-	socatCmd := fmt.Sprintf(" socat -d -d stdio unix-connect:'%s'", socketFile)
-	if err := h.tmuxManager.ExecuteInWindow(window, socatCmd); err != nil {
-		return nil, fmt.Errorf("failed to execute socat command: %w", err)
+	ptyCmd := fmt.Sprintf(" nx bridge %q", socketFile)
+	if err := h.tmuxManager.ExecuteInWindow(window, ptyCmd); err != nil {
+		return nil, fmt.Errorf("failed to execute bridge command: %w", err)
 	}
 
 	tmuxLoc := fmt.Sprintf("%s:%d.0", h.tmuxManager.GetSessionName(), window.Number)
