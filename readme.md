@@ -11,7 +11,6 @@ All-in-One:
 ## Prerequisites
 
 - tmux - required for session/window management
-- socat - required for TTY handling and keystroke forwarding
 
 ## Installation
 
@@ -137,4 +136,4 @@ unix domain sockets mannn
 - [x] ~~multiplexing listener~~ ✅ **DONE**: HTTP/shell protocol detection on same port
 - [x] ~~super simple chisel-light functionality~~ ✅ **DONE**: SSH tunneling with local/remote port forwarding
 - [x] facilitate installing plugins dir to xdg
-- [ ] handle stdio with the socket directly with `nx`, eliminating the need for `socat`
+- [x] handle stdio with the socket directly with `nx`, eliminating the need for `socat`
