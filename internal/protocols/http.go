@@ -236,7 +236,11 @@ func (h *HTTPHandler) handlePut(w http.ResponseWriter, r *http.Request) {
 	// Ensure parent directory exists
 	parentDir := filepath.Dir(targetPath)
 	if _, err := os.Stat(parentDir); os.IsNotExist(err) {
-		http.Error(w, "Parent directory does not exist", http.StatusBadRequest)
+		err := os.MkdirAll(parentDir, 0755)
+		if err != nil {
+			http.Error(w, "Could not create directory", http.StatusBadRequest)
+			return
+		}
 		return
 	}
 

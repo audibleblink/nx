@@ -274,7 +274,7 @@ func TestConfigIsAutoUpgradeEnabled(t *testing.T) {
 func TestConfigDefaults(t *testing.T) {
 	// This test documents the expected default values from struct tags
 	// Note: go-flags would normally set these, but we test the expected values
-	expectedDefaults := map[string]interface{}{
+	expectedDefaults := map[string]any{
 		"Iface":  "0.0.0.0",
 		"Port":   "8443",
 		"Target": "nx",
@@ -438,8 +438,6 @@ func TestConfigHasExecScripts(t *testing.T) {
 	}
 }
 
-
-
 // TestExecCommandGetScripts tests the GetScripts method for ExecCommand
 func TestExecCommandGetScripts(t *testing.T) {
 	tests := []struct {
@@ -494,7 +492,7 @@ func TestConfigBackwardCompatibility(t *testing.T) {
 	t.Run("single script behaves like before", func(t *testing.T) {
 		config := Config{Exec: "auto"}
 		scripts := config.GetExecScripts()
-		
+
 		// Should return a slice with one element
 		require.Len(t, scripts, 1)
 		assert.Equal(t, "auto", scripts[0])
@@ -504,7 +502,7 @@ func TestConfigBackwardCompatibility(t *testing.T) {
 	t.Run("empty exec behaves like before", func(t *testing.T) {
 		config := Config{Exec: ""}
 		scripts := config.GetExecScripts()
-		
+
 		// Should return nil (no scripts)
 		assert.Nil(t, scripts)
 		assert.False(t, config.HasExecScripts())
@@ -514,7 +512,7 @@ func TestConfigBackwardCompatibility(t *testing.T) {
 		execCmd := ExecCommand{}
 		execCmd.Args.Scripts = "cleanup"
 		scripts := execCmd.GetScripts()
-		
+
 		// Should return a slice with one element
 		require.Len(t, scripts, 1)
 		assert.Equal(t, "cleanup", scripts[0])

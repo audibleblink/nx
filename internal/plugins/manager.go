@@ -33,7 +33,7 @@ func NewManager(
 ) *Manager {
 	pluginDir := filepath.Join(xdg.ConfigHome, "nx", "plugins")
 	// Ensure plugin directory exists
-	os.MkdirAll(pluginDir, 0755)
+	os.MkdirAll(pluginDir, 0o755)
 
 	return &Manager{
 		pluginDir:      pluginDir,
@@ -81,7 +81,7 @@ func (m *Manager) InstallBundledPlugins(embeddedPath ...string) error {
 		}
 
 		// Write plugin file
-		err = os.WriteFile(destPath, content, 0755)
+		err = os.WriteFile(destPath, content, 0o755)
 		if err != nil {
 			log.Warn("Failed to install plugin:", entry.Name(), err)
 			continue
@@ -130,25 +130,29 @@ func (m *Manager) ExecuteOnPane(pluginName string, target *tmux.PaneTarget) erro
 }
 
 // ExecuteMultiple executes multiple plugins sequentially in the specified tmux window
-func (m *Manager) ExecuteMultiple(pluginNames []string, window *gomux.Window, continueOnError bool) error {
+func (m *Manager) ExecuteMultiple(
+	pluginNames []string,
+	window *gomux.Window,
+	continueOnError bool,
+) error {
 	log := m.log.Add("ExecuteMultiple")
-	
+
 	if len(pluginNames) == 0 {
 		return nil
 	}
-	
+
 	// Validate all plugins exist before executing any
 	for _, pluginName := range pluginNames {
 		if !m.PluginExists(pluginName) {
 			return fmt.Errorf("plugin '%s' not found", pluginName)
 		}
 	}
-	
+
 	log.Infof("Executing %d plugin(s): %v", len(pluginNames), pluginNames)
-	
+
 	for i, pluginName := range pluginNames {
 		log.Infof("[%d/%d] Executing '%s'...", i+1, len(pluginNames), pluginName)
-		
+
 		if err := m.Execute(pluginName, window); err != nil {
 			if continueOnError {
 				log.Error(fmt.Sprintf("Plugin '%s' failed (continuing): %v", pluginName, err))
@@ -157,34 +161,38 @@ func (m *Manager) ExecuteMultiple(pluginNames []string, window *gomux.Window, co
 				return fmt.Errorf("plugin '%s' failed: %w", pluginName, err)
 			}
 		}
-		
+
 		log.Infof("[%d/%d] Plugin '%s' completed successfully", i+1, len(pluginNames), pluginName)
 	}
-	
+
 	log.Info("All plugins completed successfully")
 	return nil
 }
 
 // ExecuteMultipleOnPane executes multiple plugins sequentially on a specific tmux pane
-func (m *Manager) ExecuteMultipleOnPane(pluginNames []string, target *tmux.PaneTarget, continueOnError bool) error {
+func (m *Manager) ExecuteMultipleOnPane(
+	pluginNames []string,
+	target *tmux.PaneTarget,
+	continueOnError bool,
+) error {
 	log := m.log.Add("ExecuteMultipleOnPane")
-	
+
 	if len(pluginNames) == 0 {
 		return nil
 	}
-	
+
 	// Validate all plugins exist before executing any
 	for _, pluginName := range pluginNames {
 		if !m.PluginExists(pluginName) {
 			return fmt.Errorf("plugin '%s' not found", pluginName)
 		}
 	}
-	
+
 	log.Infof("Executing %d plugin(s) on pane: %v", len(pluginNames), pluginNames)
-	
+
 	for i, pluginName := range pluginNames {
 		log.Infof("[%d/%d] Executing '%s'...", i+1, len(pluginNames), pluginName)
-		
+
 		if err := m.ExecuteOnPane(pluginName, target); err != nil {
 			if continueOnError {
 				log.Error(fmt.Sprintf("Plugin '%s' failed (continuing): %v", pluginName, err))
@@ -193,10 +201,10 @@ func (m *Manager) ExecuteMultipleOnPane(pluginNames []string, target *tmux.PaneT
 				return fmt.Errorf("plugin '%s' failed: %w", pluginName, err)
 			}
 		}
-		
+
 		log.Infof("[%d/%d] Plugin '%s' completed successfully", i+1, len(pluginNames), pluginName)
 	}
-	
+
 	log.Info("All plugins completed successfully")
 	return nil
 }
@@ -232,7 +240,11 @@ func (m *Manager) readPluginCommands(pluginName string) ([]string, error) {
 }
 
 // executeCommands executes a list of commands using the provided executor
-func (m *Manager) executeCommands(pluginName string, commands []string, executor func(string) error) error {
+func (m *Manager) executeCommands(
+	pluginName string,
+	commands []string,
+	executor func(string) error,
+) error {
 	log := m.log.Add("Execute")
 	log.Info("Running plugin:", pluginName)
 
