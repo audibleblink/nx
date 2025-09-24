@@ -73,7 +73,11 @@ func init() {
 }
 
 // completeTargets provides completion for tmux targets
-func completeTargets(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func completeTargets(
+	cmd *cobra.Command,
+	args []string,
+	toComplete string,
+) ([]string, cobra.ShellCompDirective) {
 	managers, err := NewManagers("", 0, bundledPlugins)
 	if err != nil {
 		return []string{}, cobra.ShellCompDirectiveNoFileComp
@@ -92,7 +96,7 @@ func completeTargets(cmd *cobra.Command, args []string, toComplete string) ([]st
 			targets = append(targets, target)
 		}
 	}
-	
+
 	// If no targets match the prefix, return all targets
 	if len(targets) == 0 && toComplete != "" {
 		// Return empty slice if no matches
@@ -104,12 +108,16 @@ func completeTargets(cmd *cobra.Command, args []string, toComplete string) ([]st
 			targets = append(targets, target)
 		}
 	}
-	
+
 	return targets, cobra.ShellCompDirectiveNoFileComp
 }
 
 // completePlugins provides completion for plugin names
-func completePlugins(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func completePlugins(
+	cmd *cobra.Command,
+	args []string,
+	toComplete string,
+) ([]string, cobra.ShellCompDirective) {
 	managers, err := NewManagers("", 0, bundledPlugins)
 	if err != nil {
 		return []string{}, cobra.ShellCompDirectiveNoFileComp
@@ -119,7 +127,7 @@ func completePlugins(cmd *cobra.Command, args []string, toComplete string) ([]st
 	if err != nil {
 		return []string{}, cobra.ShellCompDirectiveNoFileComp
 	}
-	
+
 	// Filter plugins based on toComplete prefix
 	var filtered []string
 	for _, plugin := range plugins {
@@ -127,11 +135,11 @@ func completePlugins(cmd *cobra.Command, args []string, toComplete string) ([]st
 			filtered = append(filtered, plugin)
 		}
 	}
-	
+
 	// If no plugins match the prefix, return all plugins
 	if len(filtered) == 0 {
 		filtered = plugins
 	}
-	
+
 	return filtered, cobra.ShellCompDirectiveNoFileComp
 }

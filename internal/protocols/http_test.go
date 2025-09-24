@@ -23,8 +23,6 @@ func TestNewHTTPHandler(t *testing.T) {
 	assert.Equal(t, serveDir, handler.serveDir)
 }
 
-
-
 func TestHTTPHandlerHandle(t *testing.T) {
 	t.Skip("Skipping HTTP handler tests - incompatible with singleConnListener fix")
 	// Create a temporary directory for serving files
@@ -35,7 +33,7 @@ func TestHTTPHandlerHandle(t *testing.T) {
 	// Create a test file
 	testFile := filepath.Join(tempDir, "test.txt")
 	testContent := "Hello, World!"
-	err = os.WriteFile(testFile, []byte(testContent), 0644)
+	err = os.WriteFile(testFile, []byte(testContent), 0o644)
 	require.NoError(t, err)
 
 	handler := NewHTTPHandler(tempDir, "localhost:8443")
@@ -184,8 +182,6 @@ func TestHTTPHandlerEdgeCases(t *testing.T) {
 	})
 }
 
-
-
 func TestHTTPHandlerConcurrency(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "nx-http-concurrent-test")
 	require.NoError(t, err)
@@ -195,7 +191,7 @@ func TestHTTPHandlerConcurrency(t *testing.T) {
 	for i := range 5 {
 		filename := filepath.Join(tempDir, fmt.Sprintf("file%d.txt", i))
 		content := fmt.Sprintf("Content of file %d", i)
-		err = os.WriteFile(filename, []byte(content), 0644)
+		err = os.WriteFile(filename, []byte(content), 0o644)
 		require.NoError(t, err)
 	}
 
@@ -270,7 +266,10 @@ func TestHTTPHandlerPut(t *testing.T) {
 		defer server.Close()
 		defer client.Close()
 
-		respCh := make(chan struct{ status string; raw string })
+		respCh := make(chan struct {
+			status string
+			raw    string
+		})
 		go func() {
 			defer close(respCh)
 			go h.Handle(server)
@@ -290,7 +289,10 @@ func TestHTTPHandlerPut(t *testing.T) {
 				}
 				raw.WriteString(line)
 			}
-			respCh <- struct{ status string; raw string }{status: statusLine, raw: raw.String()}
+			respCh <- struct {
+				status string
+				raw    string
+			}{status: statusLine, raw: raw.String()}
 		}()
 		resp := <-respCh
 		return resp.status, resp.raw
@@ -298,7 +300,10 @@ func TestHTTPHandlerPut(t *testing.T) {
 
 	t.Run("creates new file (201)", func(t *testing.T) {
 		content := []byte("hello")
-		req := fmt.Sprintf("PUT /new.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: %d\r\n\r\n", len(content))
+		req := fmt.Sprintf(
+			"PUT /new.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: %d\r\n\r\n",
+			len(content),
+		)
 		status, _ := writeAndRead(req, content)
 		assert.Contains(t, status, "201")
 		data, err := os.ReadFile(filepath.Join(tempDir, "new.txt"))
@@ -308,9 +313,12 @@ func TestHTTPHandlerPut(t *testing.T) {
 
 	t.Run("overwrites existing file (200)", func(t *testing.T) {
 		orig := filepath.Join(tempDir, "overwrite.txt")
-		require.NoError(t, os.WriteFile(orig, []byte("old"), 0644))
+		require.NoError(t, os.WriteFile(orig, []byte("old"), 0o644))
 		content := []byte("newdata")
-		req := fmt.Sprintf("PUT /overwrite.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: %d\r\n\r\n", len(content))
+		req := fmt.Sprintf(
+			"PUT /overwrite.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: %d\r\n\r\n",
+			len(content),
+		)
 		status, _ := writeAndRead(req, content)
 		assert.Contains(t, status, "200")
 		data, err := os.ReadFile(orig)
@@ -332,14 +340,17 @@ func TestHTTPHandlerPut(t *testing.T) {
 
 	t.Run("missing parent directory -> 400", func(t *testing.T) {
 		content := []byte("data")
-		req := fmt.Sprintf("PUT /missingdir/file.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: %d\r\n\r\n", len(content))
+		req := fmt.Sprintf(
+			"PUT /missingdir/file.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: %d\r\n\r\n",
+			len(content),
+		)
 		status, _ := writeAndRead(req, content)
 		assert.Contains(t, status, "400")
 	})
 
 	t.Run("existing directory path -> 409", func(t *testing.T) {
 		dirPath := filepath.Join(tempDir, "adir")
-		require.NoError(t, os.Mkdir(dirPath, 0755))
+		require.NoError(t, os.Mkdir(dirPath, 0o755))
 		req := "PUT /adir HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
 		status, _ := writeAndRead(req, nil)
 		assert.Contains(t, status, "409")
@@ -352,7 +363,3 @@ func TestHTTPHandlerPut(t *testing.T) {
 		assert.Contains(t, status, "400")
 	})
 }
-
-
-
-

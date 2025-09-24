@@ -97,7 +97,7 @@ func (m *Manager) ExecuteInWindow(window *gomux.Window, command string) error {
 	// Use direct tmux send-keys instead of gomux Exec to avoid quote escaping
 	// Get the pane target from the window
 	targetStr := fmt.Sprintf("%s:%d.0", m.session.Name, window.Number)
-	
+
 	// Use tmux send-keys directly, same as ExecuteOnPane
 	cmd := exec.Command("tmux", "send-keys", "-t", targetStr, command, "C-m")
 	err := cmd.Run()
@@ -201,7 +201,7 @@ func (m *Manager) ExecuteOnPane(target *PaneTarget, command string) error {
 	// We need to be careful with quote handling - pass the command as a single argument
 	// to avoid Go's exec package from escaping quotes
 	cmd := exec.Command("tmux", "send-keys", "-t", targetStr, command, "C-m")
-	
+
 	// Set the command to not escape shell metacharacters
 	// by ensuring the command string is passed exactly as-is
 	err := cmd.Run()
