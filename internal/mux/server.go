@@ -57,9 +57,15 @@ func NewServer(
 // Start starts the multiplexer server
 func (s *Server) Start(ctx context.Context) error {
 	// Create matchers for different protocols
-	// Order matters
 	sshL := s.mux.Match(cmux.PrefixMatcher("SSH-"))
-	httpL := s.mux.Match(cmux.HTTP1Fast())
+
+	// HTTP matcher includes standard HTTP and WebDAV methods
+	httpMethods := []string{
+		"GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH", // Standard HTTP
+		"PROPFIND", "PROPPATCH", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK", // WebDAV
+	}
+	httpL := s.mux.Match(cmux.HTTP1Fast(httpMethods...))
+
 	shellL := s.mux.Match(cmux.Any())
 
 	// Start HTTP handler (handles file serving, HTTP proxy, and HTTPS CONNECT)

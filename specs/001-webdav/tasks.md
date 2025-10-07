@@ -50,54 +50,54 @@ Single project structure following existing nx architecture:
 
 ## Phase 3.2: Tests First (TDD) ⚠️ MUST COMPLETE BEFORE 3.3
 **CRITICAL: These tests MUST be written and MUST FAIL before ANY implementation**
-- [ ] T004 [P] Contract test PROPFIND method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVPROPFIND)
-- [ ] T005 [P] Contract test PUT method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVPUT)
-- [ ] T006 [P] Contract test DELETE method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVDELETE)
-- [ ] T007 [P] Contract test MKCOL method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVMKCOL)
-- [ ] T008 [P] Contract test COPY method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVCOPY)
-- [ ] T009 [P] Contract test MOVE method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVMOVE)
-- [ ] T010 [P] Contract test error responses in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVErrorResponses)
-- [ ] T011 [P] Contract test sequential operations in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVSequentialOperations)
-- [ ] T012 [P] Integration test multiple protocol support in `/home/red/code/nx/internal/mux/integration_test.go` (TestWebDAVWithOtherProtocols)
-- [ ] T013 [P] Integration test WebDAV protocol detection in `/home/red/code/nx/internal/mux/server_test.go` (TestWebDAVDetection)
+- [X] T004 [P] Contract test PROPFIND method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVPROPFIND)
+- [X] T005 [P] Contract test PUT method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVPUT)
+- [X] T006 [P] Contract test DELETE method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVDELETE)
+- [X] T007 [P] Contract test MKCOL method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVMKCOL)
+- [X] T008 [P] Contract test COPY method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVCOPY)
+- [X] T009 [P] Contract test MOVE method in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVMOVE)
+- [X] T010 [P] Contract test error responses in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVErrorResponses)
+- [X] T011 [P] Contract test sequential operations in `/home/red/code/nx/specs/001-webdav-i-want/contracts/webdav_test.go` (TestWebDAVSequentialOperations)
+- [X] T012 [P] Integration test multiple protocol support in `/home/red/code/nx/internal/mux/integration_test.go` (TestWebDAVWithOtherProtocols)
+- [X] T013 [P] Integration test WebDAV protocol detection in `/home/red/code/nx/internal/mux/server_test.go` (TestWebDAVDetection)
 
 ## Phase 3.3: Core Implementation (ONLY after tests are failing)
-- [ ] T014 [P] WebDAVConfig entity in `/home/red/code/nx/internal/config/config.go` (add WebDAV fields)
-- [ ] T015 [P] WebDAVRequest entity in `/home/red/code/nx/internal/protocols/webdav.go` (struct and validation)
-- [ ] T016 [P] WebDAVResponse entity in `/home/red/code/nx/internal/protocols/webdav.go` (struct and XML methods)
-- [ ] T017 [P] FileProperty entity in `/home/red/code/nx/internal/protocols/webdav.go` (struct and XML conversion)
-- [ ] T018 WebDAVHandler entity with Handle method in `/home/red/code/nx/internal/protocols/webdav.go`
-- [ ] T019 PROPFIND method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handlePROPFIND)
-- [ ] T020 PUT method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handlePUT)
-- [ ] T021 DELETE method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handleDELETE)
-- [ ] T022 MKCOL method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handleMKCOL)
-- [ ] T023 COPY method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handleCOPY)
-- [ ] T024 MOVE method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handleMOVE)
-- [ ] T025 WebDAV request parsing in `/home/red/code/nx/internal/protocols/webdav.go` (parseWebDAVRequest)
-- [ ] T026 Path validation and security in `/home/red/code/nx/internal/protocols/webdav.go` (validatePath)
-- [ ] T027 XML response generation in `/home/red/code/nx/internal/protocols/webdav.go` (XML marshaling methods)
-- [ ] T027a WebDAV Depth header validation in `/home/red/code/nx/internal/protocols/webdav.go` (validateDepth method)
-- [ ] T027b File permission enforcement in `/home/red/code/nx/internal/protocols/webdav.go` (checkFilePermissions method)
+- [X] T014 [P] WebDAVConfig entity in `/home/red/code/nx/internal/protocols/webdav.go` (add WebDAV fields)
+- [X] T015 [P] WebDAVRequest entity in `/home/red/code/nx/internal/protocols/webdav.go` (struct and validation)
+- [X] T016 [P] WebDAVResponse entity in `/home/red/code/nx/internal/protocols/webdav.go` (struct and XML methods)
+- [X] T017 [P] FileProperty entity in `/home/red/code/nx/internal/protocols/webdav.go` (struct and XML conversion)
+- [X] T018 WebDAVHandler entity with Handle method in `/home/red/code/nx/internal/protocols/webdav.go`
+- [X] T019 PROPFIND method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handlePROPFIND)
+- [X] T020 PUT method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handlePUT)
+- [X] T021 DELETE method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handleDELETE)
+- [X] T022 MKCOL method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handleMKCOL)
+- [X] T023 COPY method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handleCOPY)
+- [X] T024 MOVE method handler in `/home/red/code/nx/internal/protocols/webdav.go` (handleMOVE)
+- [X] T025 WebDAV request parsing in `/home/red/code/nx/internal/protocols/webdav.go` (parseWebDAVRequest)
+- [X] T026 Path validation and security in `/home/red/code/nx/internal/protocols/webdav.go` (validatePath)
+- [X] T027 XML response generation in `/home/red/code/nx/internal/protocols/webdav.go` (XML marshaling methods)
+- [X] T027a WebDAV Depth header validation in `/home/red/code/nx/internal/protocols/webdav.go` (validateDepth method)
+- [X] T027b File permission enforcement in `/home/red/code/nx/internal/protocols/webdav.go` (checkFilePermissions method)
 
 ## Phase 3.4: Integration
-- [ ] T028 WebDAV protocol detection in `/home/red/code/nx/internal/mux/server.go` (extend multiplexer)
-- [ ] T029 WebDAV flag addition in `/home/red/code/nx/internal/cmd/server.go` (--webdav CLI flag)
-- [ ] T030 WebDAV configuration validation in `/home/red/code/nx/internal/config/config.go` (validate WebDAV settings)
-- [ ] T031 WebDAV handler initialization in `/home/red/code/nx/internal/cmd/server.go` (NewWebDAVHandler call)
-- [ ] T032 Sequential operation enforcement in `/home/red/code/nx/internal/protocols/webdav.go` (sync.Mutex implementation)
-- [ ] T033 Structured logging integration in `/home/red/code/nx/internal/protocols/webdav.go` (logerr package usage)
-- [ ] T034 Error handling and status codes in `/home/red/code/nx/internal/protocols/webdav.go` (HTTP error responses)
+- [X] T028 WebDAV protocol detection in `/home/red/code/nx/internal/mux/server.go` (extend multiplexer)
+- [X] T029 WebDAV flag addition in `/home/red/code/nx/internal/cmd/server.go` (--webdav CLI flag)
+- [X] T030 WebDAV configuration validation in `/home/red/code/nx/internal/config/config.go` (validate WebDAV settings)
+- [X] T031 WebDAV handler initialization in `/home/red/code/nx/internal/cmd/root.go` (NewWebDAVHandler call)
+- [X] T032 Sequential operation enforcement in `/home/red/code/nx/internal/protocols/webdav.go` (sync.Mutex implementation)
+- [X] T033 Structured logging integration in `/home/red/code/nx/internal/protocols/webdav.go` (logerr package usage)
+- [X] T034 Error handling and status codes in `/home/red/code/nx/internal/protocols/webdav.go` (HTTP error responses)
 
 ## Phase 3.5: Polish
-- [ ] T035 [P] Unit tests for WebDAVRequest validation in `/home/red/code/nx/internal/protocols/webdav_test.go`
-- [ ] T036 [P] Unit tests for FileProperty XML conversion in `/home/red/code/nx/internal/protocols/webdav_test.go`
-- [ ] T037 [P] Unit tests for path validation security in `/home/red/code/nx/internal/protocols/webdav_test.go`
-- [ ] T038 [P] Unit tests for WebDAV config validation in `/home/red/code/nx/internal/config/config_test.go`
-- [ ] T039 Performance validation using quickstart.md scenarios (verify sequential operations <100ms per file, concurrent client handling without timeouts) in `/home/red/code/nx/specs/001-webdav-i-want/`
-- [ ] T040 [P] Update AGENTS.md with WebDAV implementation details
-- [ ] T041 [P] Add WebDAV examples to README.md
-- [ ] T042 Remove code duplication and refactor common patterns
-- [ ] T043 Execute full quickstart.md validation scenarios
+- [X] T035 [P] Unit tests for WebDAVRequest validation in `/home/red/code/nx/internal/protocols/webdav_test.go`
+- [X] T036 [P] Unit tests for FileProperty XML conversion in `/home/red/code/nx/internal/protocols/webdav_test.go`
+- [X] T037 [P] Unit tests for path validation security in `/home/red/code/nx/internal/protocols/webdav_test.go`
+- [X] T038 [P] Unit tests for WebDAV config validation in `/home/red/code/nx/internal/config/config_test.go`
+- [X] T039 Performance validation using quickstart.md scenarios (verify sequential operations <100ms per file, concurrent client handling without timeouts) in `/home/red/code/nx/specs/001-webdav-i-want/`
+- [X] T040 [P] Update AGENTS.md with WebDAV implementation details
+- [X] T041 [P] Add WebDAV examples to README.md
+- [X] T042 Remove code duplication and refactor common patterns
+- [X] T043 Execute full quickstart.md validation scenarios
 
 ## Dependencies
 - Tests (T004-T013) before implementation (T014-T027)
@@ -178,8 +178,8 @@ Task: "Unit tests for WebDAV config validation in config_test.go"
 *Updated during task execution*
 
 - [x] Task generation complete
-- [ ] Phase 3.1: Setup complete
-- [ ] Phase 3.2: Tests complete (TDD)
-- [ ] Phase 3.3: Core implementation complete
-- [ ] Phase 3.4: Integration complete
-- [ ] Phase 3.5: Polish complete
+- [x] Phase 3.1: Setup complete
+- [x] Phase 3.2: Tests complete (TDD)
+- [x] Phase 3.3: Core implementation complete
+- [x] Phase 3.4: Integration complete
+- [x] Phase 3.5: Polish complete

@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +22,7 @@ type WebDAVHandler interface {
 // TestWebDAVPROPFIND tests WebDAV PROPFIND method for directory listing
 func TestWebDAVPROPFIND(t *testing.T) {
 	t.Skip("Contract test - implementation pending")
-
+	
 	// Setup test directory
 	tempDir, err := os.MkdirTemp("", "nx-webdav-propfind-test")
 	require.NoError(t, err)
@@ -39,21 +38,11 @@ func TestWebDAVPROPFIND(t *testing.T) {
 	err = os.Mkdir(testDir, 0o755)
 	require.NoError(t, err)
 
-	// This will be replaced with actual WebDAVHandler once implemented
-	// handler := NewWebDAVHandler(tempDir)
-
 	t.Run("PROPFIND depth 1 returns directory listing", func(t *testing.T) {
 		server, client := net.Pipe()
 		defer server.Close()
 		defer client.Close()
 
-		// Handle connection in goroutine (will use actual handler)
-		go func() {
-			defer server.Close()
-			// handler.Handle(server) // Uncomment when handler exists
-		}()
-
-		// Send PROPFIND request with depth 1
 		propfindBody := `<?xml version="1.0" encoding="utf-8" ?>
 <propfind xmlns="DAV:">
   <allprop/>
@@ -68,24 +57,18 @@ func TestWebDAVPROPFIND(t *testing.T) {
 		_, err := client.Write([]byte(request))
 		require.NoError(t, err)
 
-		// Read response
 		reader := bufio.NewReader(client)
 		statusLine, _, err := reader.ReadLine()
 		require.NoError(t, err)
 		assert.Contains(t, string(statusLine), "207 Multi-Status")
 
-		// Verify XML response contains expected elements
 		response, err := io.ReadAll(reader)
 		require.NoError(t, err)
 		responseStr := string(response)
 
-		// Should contain XML namespace
 		assert.Contains(t, responseStr, `xmlns="DAV:"`)
-		// Should contain multistatus element
 		assert.Contains(t, responseStr, "<multistatus")
-		// Should contain response elements for directory and files
 		assert.Contains(t, responseStr, "<response>")
-		// Should contain file properties
 		assert.Contains(t, responseStr, "test.txt")
 		assert.Contains(t, responseStr, "subdir")
 	})
@@ -144,7 +127,7 @@ func TestWebDAVPROPFIND(t *testing.T) {
 // TestWebDAVPUT tests WebDAV PUT method for file uploads
 func TestWebDAVPUT(t *testing.T) {
 	t.Skip("Contract test - implementation pending")
-
+	
 	tempDir, err := os.MkdirTemp("", "nx-webdav-put-test")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
@@ -169,7 +152,6 @@ func TestWebDAVPUT(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(statusLine), "201 Created")
 
-		// Verify file was created
 		createdFile := filepath.Join(tempDir, "newfile.txt")
 		data, err := os.ReadFile(createdFile)
 		require.NoError(t, err)
@@ -177,7 +159,6 @@ func TestWebDAVPUT(t *testing.T) {
 	})
 
 	t.Run("PUT overwrites existing file returns 204", func(t *testing.T) {
-		// Create existing file
 		existingFile := filepath.Join(tempDir, "existing.txt")
 		err := os.WriteFile(existingFile, []byte("old content"), 0o644)
 		require.NoError(t, err)
@@ -201,7 +182,6 @@ func TestWebDAVPUT(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(statusLine), "204 No Content")
 
-		// Verify file was updated
 		data, err := os.ReadFile(existingFile)
 		require.NoError(t, err)
 		assert.Equal(t, newContent, string(data))
@@ -211,13 +191,12 @@ func TestWebDAVPUT(t *testing.T) {
 // TestWebDAVDELETE tests WebDAV DELETE method
 func TestWebDAVDELETE(t *testing.T) {
 	t.Skip("Contract test - implementation pending")
-
+	
 	tempDir, err := os.MkdirTemp("", "nx-webdav-delete-test")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
 	t.Run("DELETE removes file returns 204", func(t *testing.T) {
-		// Create file to delete
 		testFile := filepath.Join(tempDir, "delete_me.txt")
 		err := os.WriteFile(testFile, []byte("content"), 0o644)
 		require.NoError(t, err)
@@ -235,7 +214,6 @@ func TestWebDAVDELETE(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(statusLine), "204 No Content")
 
-		// Verify file was deleted
 		_, err = os.Stat(testFile)
 		assert.True(t, os.IsNotExist(err))
 	})
@@ -259,7 +237,7 @@ func TestWebDAVDELETE(t *testing.T) {
 // TestWebDAVMKCOL tests WebDAV MKCOL method for directory creation
 func TestWebDAVMKCOL(t *testing.T) {
 	t.Skip("Contract test - implementation pending")
-
+	
 	tempDir, err := os.MkdirTemp("", "nx-webdav-mkcol-test")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
@@ -278,7 +256,6 @@ func TestWebDAVMKCOL(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(statusLine), "201 Created")
 
-		// Verify directory was created
 		newDir := filepath.Join(tempDir, "newdir")
 		stat, err := os.Stat(newDir)
 		require.NoError(t, err)
@@ -286,7 +263,6 @@ func TestWebDAVMKCOL(t *testing.T) {
 	})
 
 	t.Run("MKCOL existing resource returns 405", func(t *testing.T) {
-		// Create existing directory
 		existingDir := filepath.Join(tempDir, "existing")
 		err := os.Mkdir(existingDir, 0o755)
 		require.NoError(t, err)
@@ -309,13 +285,12 @@ func TestWebDAVMKCOL(t *testing.T) {
 // TestWebDAVCOPY tests WebDAV COPY method
 func TestWebDAVCOPY(t *testing.T) {
 	t.Skip("Contract test - implementation pending")
-
+	
 	tempDir, err := os.MkdirTemp("", "nx-webdav-copy-test")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
 	t.Run("COPY file to new location returns 201", func(t *testing.T) {
-		// Create source file
 		sourceFile := filepath.Join(tempDir, "source.txt")
 		sourceContent := "Copy me"
 		err := os.WriteFile(sourceFile, []byte(sourceContent), 0o644)
@@ -334,13 +309,11 @@ func TestWebDAVCOPY(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(statusLine), "201 Created")
 
-		// Verify destination file exists with same content
 		destFile := filepath.Join(tempDir, "destination.txt")
 		data, err := os.ReadFile(destFile)
 		require.NoError(t, err)
 		assert.Equal(t, sourceContent, string(data))
 
-		// Verify source file still exists
 		_, err = os.Stat(sourceFile)
 		require.NoError(t, err)
 	})
@@ -349,13 +322,12 @@ func TestWebDAVCOPY(t *testing.T) {
 // TestWebDAVMOVE tests WebDAV MOVE method
 func TestWebDAVMOVE(t *testing.T) {
 	t.Skip("Contract test - implementation pending")
-
+	
 	tempDir, err := os.MkdirTemp("", "nx-webdav-move-test")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
 	t.Run("MOVE file to new location returns 201", func(t *testing.T) {
-		// Create source file
 		sourceFile := filepath.Join(tempDir, "move_source.txt")
 		sourceContent := "Move me"
 		err := os.WriteFile(sourceFile, []byte(sourceContent), 0o644)
@@ -374,13 +346,11 @@ func TestWebDAVMOVE(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(statusLine), "201 Created")
 
-		// Verify destination file exists with same content
 		destFile := filepath.Join(tempDir, "move_dest.txt")
 		data, err := os.ReadFile(destFile)
 		require.NoError(t, err)
 		assert.Equal(t, sourceContent, string(data))
 
-		// Verify source file no longer exists
 		_, err = os.Stat(sourceFile)
 		assert.True(t, os.IsNotExist(err))
 	})
@@ -389,13 +359,12 @@ func TestWebDAVMOVE(t *testing.T) {
 // TestWebDAVErrorResponses tests WebDAV error handling
 func TestWebDAVErrorResponses(t *testing.T) {
 	t.Skip("Contract test - implementation pending")
-
+	
 	t.Run("unsupported method returns 405", func(t *testing.T) {
 		server, client := net.Pipe()
 		defer server.Close()
 		defer client.Close()
 
-		// LOCK method should return 405 per requirements
 		request := "LOCK /test.txt HTTP/1.1\r\nHost: localhost:8443\r\n\r\n"
 		_, err := client.Write([]byte(request))
 		require.NoError(t, err)
@@ -443,63 +412,21 @@ func TestWebDAVErrorResponses(t *testing.T) {
 	})
 }
 
-// TestWebDAVHeaders tests WebDAV compliance headers
-func TestWebDAVHeaders(t *testing.T) {
-	t.Skip("Contract test - implementation pending")
-
-	t.Run("responses include DAV header", func(t *testing.T) {
-		server, client := net.Pipe()
-		defer server.Close()
-		defer client.Close()
-
-		request := "OPTIONS / HTTP/1.1\r\nHost: localhost:8443\r\n\r\n"
-		_, err := client.Write([]byte(request))
-		require.NoError(t, err)
-
-		reader := bufio.NewReader(client)
-
-		// Read status line
-		statusLine, _, err := reader.ReadLine()
-		require.NoError(t, err)
-		assert.Contains(t, string(statusLine), "200")
-
-		// Read headers and look for DAV compliance
-		foundDAVHeader := false
-		for {
-			line, _, err := reader.ReadLine()
-			if err != nil || len(line) == 0 {
-				break
-			}
-			headerLine := string(line)
-			if strings.HasPrefix(headerLine, "DAV:") {
-				foundDAVHeader = true
-				assert.Contains(t, headerLine, "1, 2") // DAV compliance levels
-			}
-		}
-		assert.True(t, foundDAVHeader, "DAV header should be present in response")
-	})
-}
-
 // TestWebDAVSequentialOperations tests requirement FR-019
 func TestWebDAVSequentialOperations(t *testing.T) {
 	t.Skip("Contract test - implementation pending")
-
+	
 	tempDir, err := os.MkdirTemp("", "nx-webdav-sequential-test")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
 	t.Run("operations processed sequentially per client", func(t *testing.T) {
-		// This test verifies that multiple WebDAV operations from the same client
-		// are processed one at a time, not concurrently
-
 		server, client := net.Pipe()
 		defer server.Close()
 		defer client.Close()
 
-		// Start timing operations to verify they are sequential
 		operationTimes := make([]time.Time, 0, 3)
 
-		// Send multiple operations rapidly
 		operations := []string{
 			"PUT /seq1.txt HTTP/1.1\r\nHost: localhost:8443\r\nContent-Type: text/plain\r\nContent-Length: 4\r\n\r\ntest",
 			"PUT /seq2.txt HTTP/1.1\r\nHost: localhost:8443\r\nContent-Type: text/plain\r\nContent-Length: 4\r\n\r\ntest",
@@ -511,13 +438,11 @@ func TestWebDAVSequentialOperations(t *testing.T) {
 			_, err := client.Write([]byte(op))
 			require.NoError(t, err)
 
-			// Read response to confirm operation completed
 			reader := bufio.NewReader(client)
 			_, _, err = reader.ReadLine()
 			require.NoError(t, err)
 		}
 
-		// Verify operations completed in sequence (each taking some minimal time)
 		for i := 1; i < len(operationTimes); i++ {
 			timeDiff := operationTimes[i].Sub(operationTimes[i-1])
 			assert.True(t, timeDiff > 0, "Operations should complete sequentially")

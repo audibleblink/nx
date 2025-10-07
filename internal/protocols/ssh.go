@@ -37,6 +37,7 @@ func NewSSHHandler(password string) (*SSHHandler, error) {
 
 // Handle processes SSH connections
 func (h *SSHHandler) Handle(conn net.Conn) error {
+	h.log.Debugf("connection from %s", conn.RemoteAddr().String())
 	h.server.HandleConn(conn)
 	return nil
 }

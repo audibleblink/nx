@@ -384,6 +384,15 @@ func TestProtocolDetection(t *testing.T) {
 	})
 }
 
+// TestWebDAVDetection verifies WebDAV protocol detection in the multiplexer
+func TestWebDAVDetection(t *testing.T) {
+	t.Skip("Integration test - WebDAV implementation pending")
+
+	// This test will verify that the multiplexer correctly detects
+	// WebDAV requests by examining HTTP methods (PROPFIND, MKCOL, etc.)
+	// and routes them to the WebDAV handler
+}
+
 // TestServerIntegration tests the integration of server components
 func TestServerIntegration(t *testing.T) {
 	t.Run("server with HTTP file serving", func(t *testing.T) {

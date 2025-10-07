@@ -137,3 +137,30 @@ unix domain sockets mannn
 - [x] ~~super simple chisel-light functionality~~ ✅ **DONE**: SSH tunneling with local/remote port forwarding
 - [x] facilitate installing plugins dir to xdg
 - [x] handle stdio with the socket directly with `nx`, eliminating the need for `socat`
+
+## WebDAV File Access
+
+WebDAV protocol support is automatically enabled when using the `--serve-dir` flag:
+
+```bash
+# Start server with file serving (WebDAV automatically enabled)
+./nx server --serve-dir /path/to/files --port 8443
+
+# Access from Windows Explorer
+\\localhost@8443\DavWWWRoot\
+
+# Access from macOS Finder
+# Cmd+K, then: http://localhost:8443
+
+# Access from Linux (davfs2)
+sudo mount -t davfs http://localhost:8443 /mnt/webdav
+
+# Command-line operations with curl
+curl -X PROPFIND http://localhost:8443/ -H "Depth: 1"  # List files
+curl http://localhost:8443/file.txt                     # Download
+curl -X PUT http://localhost:8443/new.txt --data-binary @local.txt  # Upload
+curl -X DELETE http://localhost:8443/file.txt           # Delete
+curl -X MKCOL http://localhost:8443/newdir              # Create directory
+```
+
+The server intelligently detects WebDAV methods (PROPFIND, MKCOL, COPY, MOVE) and routes them appropriately.

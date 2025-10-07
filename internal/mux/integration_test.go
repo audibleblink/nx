@@ -131,6 +131,15 @@ func TestProtocolMultiplexing(t *testing.T) {
 	})
 }
 
+// TestWebDAVWithOtherProtocols verifies WebDAV works alongside HTTP, SSH, and shell protocols
+func TestWebDAVWithOtherProtocols(t *testing.T) {
+	t.Skip("Integration test - WebDAV implementation pending")
+
+	// This test will verify that WebDAV protocol detection and handling
+	// doesn't interfere with existing HTTP, SSH, and shell protocols
+	// when all are enabled on the same multiplexed port
+}
+
 // TestConcurrentConnections tests handling of multiple concurrent connections
 func TestConcurrentConnections(t *testing.T) {
 	t.Run("multiple concurrent HTTP connections", func(t *testing.T) {

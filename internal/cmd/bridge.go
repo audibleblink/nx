@@ -6,9 +6,9 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/audibleblink/logerr"
 	"github.com/audibleblink/nx/internal/bridge"
 	"github.com/spf13/cobra"
-	"github.com/audibleblink/logerr"
 )
 
 var bridgeCmd = &cobra.Command{
