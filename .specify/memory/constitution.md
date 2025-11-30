@@ -1,19 +1,18 @@
 <!--
-Sync Impact Report:
-Version: 0.0.0 → 1.0.0
-Change Type: MAJOR (Initial constitution establishment)
-Modified Principles: N/A (initial creation)
+Sync Impact Report - Constitution Update
+========================================
+Version Change: [Initial] → 1.0.0
+Modified Principles: N/A (initial constitution)
 Added Sections:
   - Core Principles (5 principles)
-  - Development Standards
+  - Architecture Constraints
+  - Development Workflow
   - Governance
 Removed Sections: N/A
-Templates Status:
-  ✅ .specify/templates/plan-template.md - Aligned with constitution principles
-  ✅ .specify/templates/spec-template.md - Aligned with requirements standards
-  ✅ .specify/templates/tasks-template.md - Aligned with TDD and testing principles
-  ✅ .opencode/command/*.md - No agent-specific references found
-  ✅ AGENTS.md - Serves as runtime guidance, aligned with principles
+Templates Requiring Updates:
+  ✅ plan-template.md - Constitution Check section aligns with principles
+  ✅ spec-template.md - Requirements structure compatible
+  ✅ tasks-template.md - Task categorization reflects test-first principle
 Follow-up TODOs: None
 -->
 
@@ -21,107 +20,148 @@ Follow-up TODOs: None
 
 ## Core Principles
 
-### I. Code Quality & Standards (NON-NEGOTIABLE)
-All code MUST adhere to standard Go conventions and formatting:
-- Use `go fmt` for all code - no exceptions
-- Import organization: standard library, third-party, internal packages with blank line separation
-- Naming conventions strictly enforced: PascalCase for exported, camelCase for unexported
-- Error handling: Always check errors, use `fmt.Errorf` with `%w` for proper wrapping
-- Context cancellation: Respect `context.Context` for all shutdown operations
+### I. Library-First Architecture
 
-**Rationale**: Consistency enables maintainability. Security tools require predictable,
-auditable code. Standard formatting eliminates bikeshedding and enables automated tooling.
+Every feature MUST start as a standalone internal package with clear boundaries and single responsibility. Libraries MUST be:
+- Self-contained with minimal external dependencies
+- Independently testable through comprehensive unit tests
+- Documented with clear purpose and public API contracts
+- Named according to their domain responsibility (e.g., `protocols`, `mux`, `tmux`)
 
-### II. Testing Discipline (NON-NEGOTIABLE)
-Test-driven development is mandatory for all features:
-- Table-driven tests using testify for all new functionality
-- Tests MUST be written before implementation (Red-Green-Refactor)
-- Contract tests required for protocol handlers (HTTP, SSH, shell)
-- Integration tests required for multiplexing and plugin system
-- Test files end with `_test.go` and live alongside source
-- Test data in `testdata/` directories
+**Rationale**: Internal package separation enables independent evolution, testing isolation, and prevents circular dependencies. This pattern is evident in nx's architecture where protocols, multiplexing, and session management are cleanly separated.
 
-**Rationale**: nx handles security-sensitive operations (reverse shells, SSH tunneling).
-Bugs can create vulnerabilities. TDD ensures behavior is specified before implementation
-and provides regression protection.
+### II. CLI-First Interface
 
-### III. Security First
-Security considerations MUST be addressed in all code:
-- Input validation for all user-supplied data (ports, paths, commands)
-- No sensitive information in error messages or logs
-- Proper cleanup of connections, sessions, and resources
-- Signal handling (SIGINT, SIGTERM) for graceful shutdown
-- Dependencies checked for known vulnerabilities
+Every library MUST expose functionality via CLI commands. All interfaces MUST follow:
+- Text-based I/O protocol: command-line args → stdout, errors → stderr
+- Support for both JSON and human-readable output formats where applicable
+- Integration with shell scripting and automation workflows
+- Cobra command structure for consistent UX
 
-**Rationale**: nx is a security tool used in sensitive environments. Security failures
-can compromise entire systems. Defense-in-depth requires security at every layer.
+**Rationale**: CLI-first design ensures debuggability, scriptability, and universal accessibility. nx's primary interface is CLI-based, enabling reverse shell management, file serving, and tunneling through simple commands.
 
-### IV. Simplicity & Maintainability
-Favor simple, direct solutions over complex abstractions:
-- YAGNI principle: Implement only what is needed now
-- No premature abstraction - wait for 3+ use cases before extracting patterns
-- Clear separation of concerns by package (internal/cmd, internal/protocols, etc.)
-- Interfaces defined close to usage, not speculatively
-- Complexity MUST be justified in documentation
+### III. Test-First Development (NON-NEGOTIABLE)
 
-**Rationale**: Security tools must be auditable. Complex code hides bugs and
-vulnerabilities. Simple code is easier to review, test, and maintain.
+TDD is MANDATORY for all new features and significant changes:
+1. Write tests that capture expected behavior
+2. Obtain user/stakeholder approval of test scenarios
+3. Verify tests FAIL (red state)
+4. Implement functionality until tests PASS (green state)
+5. Refactor while maintaining green state
 
-### V. Observability
-All components MUST provide visibility into their operation:
-- Use `github.com/audibleblink/logerr` for structured logging
-- Log levels: Debug (verbose), Info (normal), Error (failures), Fatal (unrecoverable)
-- Context-aware logging with proper component identification
-- No logging of sensitive data (passwords, keys, session tokens)
-- Performance-critical paths instrumented for debugging
+**Rationale**: Test-first development prevents regression, documents intent, and ensures features meet requirements before implementation. The red-green-refactor cycle is strictly enforced to maintain code quality and prevent technical debt.
 
-**Rationale**: Network tools operate in complex environments. Debugging requires
-visibility. Structured logging enables troubleshooting without compromising security.
+### IV. Integration Testing for Contracts
 
-## Development Standards
+Integration tests are REQUIRED for:
+- New internal package contracts (e.g., protocol handlers, multiplexer routing)
+- Changes to existing package interfaces
+- Inter-package communication and data flow
+- Shared schemas and data structures
+- Protocol multiplexing behavior (HTTP, SSH, WebDAV, shell)
 
-### Code Organization
-- Internal packages in `internal/` - not importable by external projects
-- Public APIs in `pkg/` - stable interfaces for external use
-- Bundled resources use `embed.FS` for single-binary distribution
-- Plugin system uses XDG base directory specification
+**Rationale**: Unit tests verify isolated behavior; integration tests verify system-level correctness. Given nx's multiplexing architecture, integration tests prevent protocol interference and validate end-to-end flows.
 
-### Dependency Management
-- Minimize external dependencies - each adds attack surface
-- Pin versions in `go.mod` for reproducible builds
-- Review dependency licenses for compatibility
-- Use standard library when sufficient
+### V. Observability Through Simplicity
 
-### Documentation
-- Package-level documentation for all packages
-- Exported functions and types MUST have doc comments
-- README.md kept current with feature additions
-- AGENTS.md updated when development patterns change
+All code MUST be observable and debuggable:
+- Text I/O ensures transparent data flow inspection
+- Structured logging REQUIRED via logerr package with appropriate levels:
+  - Debug: Request/response details, protocol detection
+  - Info: Successful operations, connection events
+  - Error: Failures, security violations, unexpected states
+- Log context MUST identify the operation domain (e.g., "webdav", "ssh", "mux")
+- Avoid hidden state; prefer explicit data flow
+
+**Rationale**: Debugging production issues in reverse shell/tunneling scenarios requires clear observability. Text protocols and structured logging enable rapid diagnosis without additional tooling.
+
+## Architecture Constraints
+
+### Technology Stack
+
+- **Language**: Go 1.24+ (toolchain compatibility required)
+- **CLI Framework**: Cobra for command structure
+- **Logging**: logerr package with context separation
+- **Testing**: Standard Go testing with testify assertions
+- **Multiplexing**: cmux for protocol detection and routing
+- **Session Management**: gomux for tmux integration
+- **Configuration**: XDG-compliant paths via adrg/xdg
+
+**Migration Policy**: Major version bumps in dependencies require justification and testing plan. Breaking changes in public APIs require deprecation period.
+
+### Security Posture
+
+- All file path operations MUST validate against directory traversal attacks
+- Authentication is optional by design (user-controlled via flags)
+- Security-sensitive operations (file access, command execution) MUST be logged
+- Plugin execution MUST be explicitly enabled and documented
+
+### Performance Expectations
+
+- Protocol detection MUST complete within first 512 bytes of connection
+- File serving operations: streaming I/O, no size limits imposed by nx
+- Concurrent connections: support multiple simultaneous clients without degradation
+- Memory: avoid buffering entire files; use streaming where possible
+
+## Development Workflow
+
+### Feature Development Process
+
+1. **Specification Phase**: Create feature spec in `specs/[###-feature]/spec.md` following template
+2. **Planning Phase**: Generate implementation plan with constitution compliance check
+3. **Test-First Implementation**:
+   - Write contract tests for new interfaces
+   - Write integration tests for protocol interactions
+   - Verify tests fail before implementation
+   - Implement until tests pass
+   - Refactor without breaking tests
+4. **Documentation**: Update README, quickstart guides, and inline godoc
+5. **Review**: Verify compliance with all constitution principles before merge
+
+### Branching Strategy
+
+- Feature branches: `###-feature-name` format (e.g., `001-webdav`)
+- Commits follow conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`
+- PRs require passing tests and constitution compliance verification
+
+### Quality Gates
+
+All PRs MUST pass:
+- [ ] All existing tests remain green
+- [ ] New tests written and passing
+- [ ] Integration tests added for contract changes
+- [ ] Logging added at appropriate levels
+- [ ] No directory traversal vulnerabilities introduced
+- [ ] Documentation updated
+- [ ] Constitution principles verified
 
 ## Governance
 
 ### Amendment Process
-1. Proposed changes documented with rationale
-2. Impact assessment on existing code and templates
-3. Version bump following semantic versioning
-4. Update all dependent templates and documentation
-5. Migration plan for breaking changes
+
+This constitution supersedes all other development practices. Amendments require:
+1. Documented justification with impact analysis
+2. Update to version number according to semantic versioning (see below)
+3. Sync impact report identifying affected templates and documentation
+4. Migration plan for existing code if principles change
+5. Team review and approval
 
 ### Versioning Policy
-- **MAJOR**: Backward incompatible principle removals or redefinitions
-- **MINOR**: New principles added or materially expanded guidance
-- **PATCH**: Clarifications, wording improvements, typo fixes
+
+Constitution version follows MAJOR.MINOR.PATCH:
+- **MAJOR**: Backward-incompatible governance changes, principle removals, or redefinitions
+- **MINOR**: New principles added, sections materially expanded, new mandatory requirements
+- **PATCH**: Clarifications, wording improvements, typo fixes, non-semantic refinements
 
 ### Compliance Review
-- All pull requests MUST verify constitutional compliance
-- Constitution violations require explicit justification
-- Complexity additions documented in implementation plans
-- AGENTS.md serves as runtime development guidance
 
-### Enforcement
-- Constitution supersedes all other development practices
-- Automated checks (go fmt, go vet, tests) gate all commits
-- Code review verifies adherence to principles
-- Violations without justification block merges
+- All PRs MUST verify alignment with constitution principles in PR description
+- Feature specs MUST include constitution check section (auto-generated in plan.md)
+- Complexity introduced MUST be justified in complexity tracking table
+- Use `.specify/memory/constitution.md` as source of truth for all governance decisions
 
-**Version**: 1.0.0 | **Ratified**: 2025-05-02 | **Last Amended**: 2025-10-06
+### Deferred Decisions
+
+None. All principles are defined and in effect as of ratification date.
+
+**Version**: 1.0.0 | **Ratified**: 2025-11-30 | **Last Amended**: 2025-11-30
