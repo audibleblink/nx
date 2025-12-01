@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/audibleblink/logerr"
@@ -141,9 +142,16 @@ func (h *ShellHandler) createTmuxWindow(socketFile string, conn net.Conn) (*gomu
 // setupEnvironment sets up environment variables for convenience
 func (h *ShellHandler) setupEnvironment(window *gomux.Window) {
 	time.Sleep(h.config.Sleep)
+
+	// Extract host from connection string for no_proxy setting
+	host := h.connStr
+	if parts := strings.Split(h.connStr, ":"); len(parts) > 0 {
+		host = parts[0]
+	}
+
 	envCmd := fmt.Sprintf(
-		" export ME=%s all_proxy=http://%s http_proxy=http://%s https_proxy=http://%s ",
-		h.connStr, h.connStr, h.connStr, h.connStr,
+		" export ME=%s all_proxy=http://%s http_proxy=http://%s https_proxy=http://%s no_proxy=%s ",
+		h.connStr, h.connStr, h.connStr, h.connStr, host,
 	)
 	_ = h.tmuxManager.ExecuteInWindow(window, envCmd)
 }
